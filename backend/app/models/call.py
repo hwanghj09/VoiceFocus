@@ -25,9 +25,15 @@ def unit(vector: Signal) -> Signal:
 
 
 class SpeakerVerifier:
-    def __init__(self, enrollment: Signal, embed: Callable[[Signal], Signal]) -> None:
+    def __init__(
+        self, enrollment: Signal, embed: Callable[[Signal], Signal], *, segments: tuple[Signal, ...] = (),
+    ) -> None:
         self.embed = embed
-        self.references = np.stack((unit(embed(enrollment)), unit(embed(telephone_band(enrollment)))))
+        self.references = np.stack([
+            unit(embed(reference))
+            for cue in (enrollment, *segments)
+            for reference in (cue, telephone_band(cue))
+        ])
 
     def similarity(self, signal: Signal) -> float:
         if np.max(np.abs(signal)) < 1e-4:

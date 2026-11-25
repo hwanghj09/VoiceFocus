@@ -144,7 +144,7 @@ export function CallRoom({ filterAvailable }: { filterAvailable: boolean }) {
       )}
       <div className="call-filter">
         <Upload label="상대 등록 음성" hint="상대만 말한 별도 WAV · 1–20초" icon={ScanFace} file={enrollment} disabled={filter !== 'off'} onChange={setEnrollment} />
-        <p>VoiceFocus를 켜면 상대 음성과 등록 WAV를 이 서버에서 처리합니다. 상대의 동의를 받아 주세요. 처리 음성은 수 초 늦게 들릴 수 있습니다.</p>
+        <p>VoiceFocus를 켜면 상대 음성과 등록 WAV를 이 서버에서 처리합니다. 상대의 동의를 받아 주세요. 처리 음성에는 재생 지연이 생깁니다.</p>
         {!filterAvailable && <p>서버에 실시간 모델을 설치하면 VoiceFocus를 사용할 수 있습니다.</p>}
         <button type="button" className="secondary" aria-pressed={filter !== 'off'} disabled={filter === 'off' && (!remote || !enrollment || !filterAvailable || status !== 'connected')} onClick={toggleFilter}>
           {filter === 'off' ? 'VoiceFocus 켜기' : 'VoiceFocus 끄기'}

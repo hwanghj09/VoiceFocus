@@ -31,7 +31,7 @@ localhost 또는 HTTPS에서 등록 WAV를 올리고 **실시간 마이크 실�
 
 한 브라우저에서 **웹 통화 → 방 만들기**를 누르고, 다른 브라우저에서 같은 서버를 열어 **방 코드 → 방 참가**로 연결하세요. 같은 기기의 로컬 시험은 localhost에서, 같은 네트워크의 두 기기 시험은 HTTPS에서 진행하세요. 방에는 두 사람까지 참가할 수 있습니다.
 
-위의 실시간 모델을 설치했다면 **상대 등록 음성**에 상대만 말한 WAV를 넣고 **VoiceFocus 켜기**를 누르세요. 처리가 시작되면 상대의 원본 재생이 음소거되고, 서버에서 검증된 음성이 수 초 늦게 재생됩니다. 두 사람 중 한 명씩 처리 음성을 시험할 수 있습니다. **VoiceFocus 끄기**로 원본 재생을 다시 켤 수 있습니다. 화면에서 나가거나 통화를 종료하면 양쪽 연결과 마이크가 해제됩니다. [시그널링과 오디오 경로](docs/ARCHITECTURE.md#웹-통화-실험)
+위의 실시간 모델을 설치했다면 **상대 등록 음성**에 상대만 말한 WAV를 넣고 **VoiceFocus 켜기**를 누르세요. 상대의 원본 재생이 음소거되고, 화면에 표시되는 예상 지연 뒤에 서버에서 검증한 음성이 재생됩니다. 두 사람 중 한 명씩 처리 음성을 시험할 수 있습니다. **VoiceFocus 끄기**로 원본 재생을 다시 켤 수 있습니다. 화면에서 나가거나 통화를 종료하면 양쪽 연결과 마이크가 해제됩니다. [시그널링과 오디오 경로](docs/ARCHITECTURE.md#웹-통화-실험)
 
 ### 화음 분리
 
@@ -73,7 +73,8 @@ python -m experiments.04_streaming.benchmark artifacts/librispeech/e02-full arti
 python -m experiments.04_streaming.benchmark_stateful \
   artifacts/librispeech/e02-full artifacts/streaming-stateful.json
 python -m experiments.04_streaming.benchmark_live artifacts/streaming-live.json \
-  --case artifacts/librispeech/e02-full/mixed.wav artifacts/librispeech/e02-full/enroll.wav artifacts/librispeech/e02-full/target.wav
+  --case artifacts/librispeech/e02-full/mixed.wav artifacts/librispeech/e02-full/enroll.wav artifacts/librispeech/e02-full/target.wav \
+  --case artifacts/librispeech/e02-full/mixed.wav artifacts/librispeech/e02-full/enroll_b.wav artifacts/librispeech/e02-full/interferer.wav
 
 python -m scripts.fetch_samples librispeech-calls artifacts/calls-source
 python -m experiments.06_calls.evaluate artifacts/calls-source artifacts/calls \

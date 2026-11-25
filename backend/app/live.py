@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from time import perf_counter
@@ -14,11 +15,17 @@ CHUNK = 2048
 log = logging.getLogger(__name__)
 
 
-def load_stream(model_dir: Path, device: str, enrollment):
-    from backend.app.models.live import VerifiedStream
+@lru_cache(maxsize=1)
+def live_extractor(model_dir: Path, device: str):
     from backend.app.models.worker import Extractor
 
-    return VerifiedStream(Extractor(model_dir, device), enrollment)
+    return Extractor(model_dir, device)
+
+
+def load_stream(model_dir: Path, device: str, enrollment):
+    from backend.app.models.live import VerifiedStream
+
+    return VerifiedStream(live_extractor(model_dir, device), enrollment)
 
 
 def is_same_origin(socket: WebSocket) -> bool:
