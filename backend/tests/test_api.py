@@ -159,6 +159,45 @@ def test_call_jobs_keep_muted_waveform_downloadable(monkeypatch):
         assert rate == 16_000 and not np.any(audio)
 
 
+@pytest.mark.parametrize("singing, expected", [(False, "call"), (True, "harmony")])
+def test_automatic_extraction_dispatches_one_job_and_uses_optional_singer_for_harmony(monkeypatch, tmp_path, singing, expected):
+    monkeypatch.setattr(main.Runtime, "model_ready", True)
+    monkeypatch.setattr(main.Runtime, "harmony_ready", True)
+    monkeypatch.setattr(main.routing, "available", lambda: True)
+    monkeypatch.setattr(main.routing, "is_harmony", lambda _mix, _enroll: singing)
+    weights = tmp_path / "vicreg.ts"
+    weights.touch()
+    monkeypatch.setattr(main.harmony, "VICREG_WEIGHTS", weights)
+
+    async def fake_infer(_runtime, job, mixture, _enrollment, second_singer):
+        assert job.mode == expected
+        assert (second_singer is not None) == singing
+        job.result = main.playback_wav(mixture)
+        if singing:
+            job.residual = main.playback_wav(np.zeros_like(mixture))
+
+    monkeypatch.setattr(main, "infer", fake_infer)
+    with TestClient(main.create_app()) as client:
+        assert client.get("/api/v1/models").json()["automatic_available"] is True
+        wav = upload(tone())
+        response = client.post("/api/v1/extract?mode=auto", files={
+            "mixture": wav, "enrollment": wav, "keep_enrollment": upload(-tone()),
+        })
+        assert response.status_code == 202
+        path = response.headers["Location"]
+        assert wait_for_job(client, path).json()["status"] == "completed"
+        assert client.get(path + "/result").status_code == 200
+        assert client.get(path + "/residual").status_code == (200 if singing else 404)
+
+
+def test_automatic_extraction_reports_a_missing_classifier(monkeypatch):
+    monkeypatch.setattr(main.Runtime, "model_ready", True)
+    monkeypatch.setattr(main.routing, "available", lambda: False)
+    with TestClient(main.create_app()) as client:
+        assert client.get("/api/v1/models").json()["automatic_available"] is False
+        assert client.post("/api/v1/extract?mode=auto").status_code == 503
+
+
 def test_rejects_incorrect_multipart_media_type():
     with TestClient(main.create_app()) as client:
         response = client.post("/api/v1/mix", headers={"Content-Type": "multipart/form-data-extra"})

@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 python_bin="${PYTHON:-python}"
 "$python_bin" -c 'import torch, torchaudio'
 "$python_bin" -m pip install -r backend/requirements.txt -r backend/requirements-harmony.txt
+PYTHON="$python_bin" bash scripts/setup_routing.sh
 
 mkdir -p .voicefocus/vendor .voicefocus/models
 vendor=.voicefocus/vendor/unmixx

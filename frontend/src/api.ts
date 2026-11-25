@@ -10,6 +10,7 @@ export interface ModelInfo {
 export interface ModelStatus {
   models: ModelInfo[]
   example_available: boolean
+  automatic_available: boolean
 }
 
 export type Mode = 'speech' | 'harmony' | 'call'
@@ -48,14 +49,13 @@ export async function getExample(name: string, signal: AbortSignal): Promise<Fil
 }
 
 export async function extract(
-  mixture: File, enrollment: File, signal: AbortSignal, mode: Mode = 'speech', keepEnrollment: File | null = null,
+  mixture: File, enrollment: File, signal: AbortSignal, keepEnrollment: File | null = null,
 ): Promise<Job> {
   const body = new FormData()
   body.append('mixture', mixture)
   body.append('enrollment', enrollment)
-  if (mode === 'harmony' && keepEnrollment) body.append('keep_enrollment', keepEnrollment)
-  const path = mode === 'speech' ? '/extract' : `/extract?mode=${mode}`
-  return (await request(path, { method: 'POST', body, signal })).json()
+  if (keepEnrollment) body.append('keep_enrollment', keepEnrollment)
+  return (await request('/extract?mode=auto', { method: 'POST', body, signal })).json()
 }
 
 export async function mix(a: File, b: File, signal: AbortSignal): Promise<File> {

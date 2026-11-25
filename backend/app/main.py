@@ -39,7 +39,7 @@ from backend.app.models.realtse import (
     VENDOR_DIR,
     checkpoint_exists,
 )
-from backend.app.models import harmony
+from backend.app.models import harmony, routing
 
 log = logging.getLogger(__name__)
 MAX_REQUEST_BYTES = 2 * MAX_FILE_BYTES + 64 * 1024
@@ -51,6 +51,7 @@ HARMONY_TIMEOUT = 240
 NO_STORE = {"Cache-Control": "no-store"}
 EXAMPLE_FILES = {"mixed.wav", "enroll.wav", "enroll_b.wav"}
 Mode = Literal["speech", "harmony", "call"]
+RequestedMode = Literal["auto", "speech", "harmony", "call"]
 
 
 @dataclass
@@ -289,6 +290,7 @@ def create_app() -> FastAPI:
                  "keep_enrollment_available": runtime.harmony_ready and harmony.VICREG_WEIGHTS.is_file()},
             ],
             "example_available": all((runtime.example_dir / name).is_file() for name in EXAMPLE_FILES),
+            "automatic_available": routing.available() and (runtime.model_ready or runtime.harmony_ready),
         }
 
     @app.get("/api/v1/examples/{name}")
@@ -318,25 +320,40 @@ def create_app() -> FastAPI:
             combined[:len(b)] += b
             return wav_response(playback_wav(combined), "voicefocus-mixed.wav")
 
-    @app.post("/api/v1/extract", status_code=202)
-    async def extract(request: Request, response: Response, mode: Mode = "speech") -> dict:
+    def require_model(mode: Mode) -> None:
         if mode != "harmony" and not runtime.model_ready:
             raise HTTPException(503, "REAL-TSE 모델을 설치한 뒤 다시 시도해 주세요.")
         if mode == "harmony" and not runtime.harmony_ready:
             raise HTTPException(503, "노래 화음 모델을 설치한 뒤 다시 시도해 주세요.")
+
+    @app.post("/api/v1/extract", status_code=202)
+    async def extract(request: Request, response: Response, mode: RequestedMode = "speech") -> dict:
+        if mode == "auto":
+            if not routing.available():
+                raise HTTPException(503, "서버에서 자동 판별 모델을 설치한 뒤 다시 시도해 주세요.")
+        else:
+            require_model(mode)
         if len(runtime.tasks) >= MAX_ACTIVE_JOBS or uploads.locked():
             raise HTTPException(503, "처리 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
         async with uploads:
             limits = {
-                "mixture": (0.1 if mode == "speech" else 1.0, MAX_MIX_SECONDS),
+                "mixture": (0.1 if mode in ("auto", "speech") else 1.0, MAX_MIX_SECONDS),
                 "enrollment": (1.0, MAX_ENROLL_SECONDS),
             }
-            optional = "keep_enrollment" if mode == "harmony" else None
+            optional = "keep_enrollment" if mode in ("auto", "harmony") else None
             if optional is not None:
                 limits[optional] = (1.0, MAX_ENROLL_SECONDS)
             audio = await read_uploads(request, limits, optional)
             mixture, enrollment = audio["mixture"], audio["enrollment"]
-            keep_enrollment = audio.get("keep_enrollment")
+            if mode == "auto":
+                try:
+                    is_harmony = await asyncio.to_thread(routing.is_harmony, mixture, enrollment)
+                except (ImportError, OSError, RuntimeError, ValueError):
+                    log.exception("VoiceFocus could not classify the extraction inputs")
+                    raise HTTPException(503, "자동 판별 모델을 불러올 수 없습니다. 서버 설치를 확인해 주세요.")
+                mode = "harmony" if is_harmony else "call"
+                require_model(mode)
+            keep_enrollment = audio.get("keep_enrollment") if mode == "harmony" else None
             if keep_enrollment is not None:
                 if not harmony.VICREG_WEIGHTS.is_file():
                     raise HTTPException(503, "남길 가수를 등록하려면 서버의 화음 모델을 업데이트해 주세요.")

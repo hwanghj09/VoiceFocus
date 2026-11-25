@@ -60,6 +60,7 @@ def server(samples, tmp_path_factory):
                     time.sleep(0.25)
                     continue
                 assert response.json()["models"][0]["available"], "Install the official REAL-TSE checkpoint first."
+                assert response.json()["automatic_available"], "Install the automatic audio routing model first."
                 break
             else:
                 pytest.fail(f"FastAPI did not start.\n{log_path.read_text()}")
@@ -108,16 +109,13 @@ def page(browser, server):
         context.close()
 
 
-def submit_and_wait(page, mode="speech"):
-    path = "/api/v1/extract" if mode == "speech" else f"/api/v1/extract?mode={mode}"
-    harmony = mode == "harmony"
-    with page.expect_response(lambda response: response.url.endswith(path)) as accepted:
-        page.get_by_role("button", name="화음 분리" if harmony else "음성 추출", exact=True).click()
+def submit_and_wait(page, expected_mode="call"):
+    with page.expect_response(lambda response: response.url.endswith("/api/v1/extract?mode=auto")) as accepted:
+        page.get_by_role("button", name="음성 추출", exact=True).click()
     response = accepted.value
     assert response.status == 202, response.text()
-    expect(page.get_by_role("status")).to_have_text(
-        "화음 분리 완료" if harmony else "추출 완료", timeout=250_000 if harmony else 130_000,
-    )
+    assert response.json()["mode"] == expected_mode
+    expect(page.get_by_role("status")).to_have_text("추출 완료", timeout=250_000 if expected_mode == "harmony" else 130_000)
     job = page.request.get(response.url.split("?", 1)[0].replace("/extract", f"/jobs/{response.json()['id']}")).json()
     assert job["status"] == "completed"
     assert job["processing_ms"] >= job["inference_ms"] > 0
@@ -126,6 +124,7 @@ def submit_and_wait(page, mode="speech"):
 
 def test_upload_extract_seek_switch_and_download(page, server, samples, tmp_path):
     page.goto(server)
+    expect(page.get_by_label("분리 대상", exact=True)).to_have_count(0)
     expect(page.get_by_text("모델 사용 가능")).to_be_visible()
     page.get_by_label("혼합 음성", exact=True).set_input_files(samples / "mixed.wav")
     page.get_by_label("등록 음성", exact=True).set_input_files(samples / "enroll.wav")
@@ -295,12 +294,10 @@ def test_harmony_removes_enrolled_tenor_and_can_swap_outputs(page, server, tmp_p
         pytest.skip("Set VOICEFOCUS_E2E_HARMONY_DIR to a measured Niño Dios fixture.")
     case = Path(case_dir)
     page.goto(server)
-    page.get_by_label("분리 대상").select_option("harmony")
-    expect(page.get_by_role("heading", name="노래 화음 분리")).to_be_visible()
     expect(page.get_by_text("모델 사용 가능")).to_be_visible()
     page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
     page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll_b.wav")
-    job = submit_and_wait(page, mode="harmony")
+    job = submit_and_wait(page, expected_mode="harmony")
     assert job["mode"] == "harmony"
 
     removed = page.get_by_role("button", name="목표 제거 후", exact=True)
@@ -336,13 +333,12 @@ def test_harmony_removes_enrolled_tenor_and_can_swap_outputs(page, server, tmp_p
     assert second.read_bytes() == target
 
 
-def test_harmony_two_references_disambiguate_singers_in_unison(page, server, tmp_path):
+def test_harmony_two_references_disambiguate_singers_in_unison(page, server, samples, tmp_path):
     case_dir = os.environ.get("VOICEFOCUS_E2E_ACCURACY_DIR")
     if not case_dir:
         pytest.skip("Set VOICEFOCUS_E2E_ACCURACY_DIR to the Rossinyol unison fixture.")
     case = Path(case_dir)
     page.goto(server)
-    page.get_by_label("분리 대상").select_option("harmony")
     page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
     page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll-a.wav")
     page.get_by_text("남길 가수도 등록").click()
@@ -350,7 +346,7 @@ def test_harmony_two_references_disambiguate_singers_in_unison(page, server, tmp
     expect(page.get_by_text("enroll-b.wav", exact=True)).to_be_visible()
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth") == 390
-    assert submit_and_wait(page, mode="harmony")["mode"] == "harmony"
+    submit_and_wait(page, expected_mode="harmony")
 
     with page.expect_download() as download:
         page.get_by_role("link", name="목표 제거 후 WAV 다운로드").click()
@@ -365,10 +361,7 @@ def test_harmony_two_references_disambiguate_singers_in_unison(page, server, tmp
     assert si_sdr(retained, result) - si_sdr(retained, mixture) > 5
     assert si_sdr(retained, result) - si_sdr(retained, one_reference) > 10
 
-    page.get_by_label("분리 대상").select_option("speech")
-    expect(page.get_by_text("남길 가수도 등록")).to_have_count(0)
-    page.get_by_label("분리 대상").select_option("harmony")
-    page.get_by_text("남길 가수도 등록").click()
+    page.get_by_label("혼합 음성", exact=True).set_input_files(samples / "mixed.wav")
     expect(page.get_by_role("button", name="남길 가수 음성 파일 선택")).to_be_visible()
 
 
@@ -378,11 +371,9 @@ def test_call_with_the_enrolled_speaker_absent_downloads_silence(page, server, t
         pytest.skip("Set VOICEFOCUS_E2E_CALL_DIR to the target-absent call fixture.")
     case = Path(case_dir)
     page.goto(server)
-    page.get_by_label("분리 대상").select_option("call")
-    expect(page.get_by_role("heading", name="통화 상대 음성 추출")).to_be_visible()
     page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
     page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll.wav")
-    job = submit_and_wait(page, mode="call")
+    job = submit_and_wait(page)
     assert job["mode"] == "call" and job["target_muted"] is True
     expect(page.get_by_text("등록한 화자를 확인하지 못해 추정 음성을 음소거했습니다.")).to_be_visible()
     with page.expect_download() as download:
@@ -400,10 +391,9 @@ def test_call_recovers_enrolled_speaker_in_narrowband_overlap(page, server):
         pytest.skip("Set VOICEFOCUS_E2E_CALL_OVERLAP_DIR to the narrowband overlap fixture.")
     case = Path(case_dir)
     page.goto(server)
-    page.get_by_label("분리 대상").select_option("call")
     page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
     page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll_b.wav")
-    job = submit_and_wait(page, mode="call")
+    job = submit_and_wait(page)
     assert job["target_muted"] is False
     response = page.request.get(f"{server}/api/v1/jobs/{job['id']}/result")
     assert response.status == 200

@@ -4,7 +4,7 @@ import {
   Layers, LoaderCircle, Radio, ScanFace, ShieldCheck, SlidersHorizontal, Waves,
 } from 'lucide-react'
 import { extract, getAudio, getExample, getJob, getModels, mix, sleep } from './api'
-import type { Job, Mode, ModelStatus } from './api'
+import type { Job, ModelStatus } from './api'
 import { AudioPreview } from './components/AudioPreview'
 import { Comparison } from './components/Comparison'
 import { EnrollmentRecorder } from './components/EnrollmentRecorder'
@@ -26,7 +26,6 @@ interface ExtractionResult {
 
 export function App() {
   const [page, setPage] = useState<'extract' | 'mix'>('extract')
-  const [mode, setMode] = useState<Mode>('speech')
   const [info, setInfo] = useState<ModelStatus | null>(null)
   const [modelError, setModelError] = useState('')
   const [modelRefresh, setModelRefresh] = useState(0)
@@ -39,9 +38,8 @@ export function App() {
   const [exampleCue, setExampleCue] = useState<'A' | 'B'>('A')
   const [recordingBusy, setRecordingBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
-  const singing = mode === 'harmony'
-  const call = mode === 'call'
-  const model = info?.models.find((entry) => entry.id === (singing ? 'harmony-vocal-split' : 'real-tse-bsrnn-spk-emb'))
+  const ready = info?.automatic_available
+  const canRegisterSecondSinger = info?.models.some((model) => model.keep_enrollment_available)
   const busy = runState !== 'idle'
   const inputsLocked = busy || recordingBusy
 
@@ -64,9 +62,14 @@ export function App() {
   }
 
   function changeFile(next: File | null, type: 'mixture' | 'enroll' | 'keep') {
-    if (type === 'mixture') setMixture(next)
-    else if (type === 'enroll') setEnroll(next)
-    else setKeepEnrollment(next)
+    if (type === 'mixture') {
+      setMixture(next)
+      setKeepEnrollment(null)
+    } else if (type === 'enroll') {
+      setEnroll(next)
+    } else {
+      setKeepEnrollment(next)
+    }
     setExtractError('')
     setResult(null)
   }
@@ -84,6 +87,7 @@ export function App() {
       if (controller.signal.aborted) return
       setMixture(input)
       setEnroll(sample)
+      setKeepEnrollment(null)
       setExampleCue(cue)
       setResult(null)
     } catch (error) {
@@ -94,16 +98,16 @@ export function App() {
   }
 
   async function submit() {
-    if (!mixture || !enroll || !model?.available || inputsLocked) return
+    if (!mixture || !enroll || !ready || inputsLocked) return
     const controller = new AbortController()
     extraction.current = controller
     setRunState('upload')
     setResult(null)
     setExtractError('')
-    const deadline = Date.now() + (singing ? 16 : 8) * 60_000
+    const deadline = Date.now() + 16 * 60_000
     const timer = window.setTimeout(() => controller.abort(), deadline - Date.now())
     try {
-      let job = await extract(mixture, enroll, controller.signal, mode, keepEnrollment)
+      let job = await extract(mixture, enroll, controller.signal, keepEnrollment)
       while (job.status === 'queued' || job.status === 'processing') {
         setRunState(job.status)
         await sleep(700, controller.signal)
@@ -126,11 +130,11 @@ export function App() {
   }
 
   const status = {
-    idle: result ? (singing ? '화음 분리 완료' : '추출 완료') : '',
+    idle: result ? '추출 완료' : '',
     example: '예제 음성을 불러오는 중',
     upload: 'WAV 파일을 올리는 중',
     queued: '처리 대기 중',
-    processing: singing ? '노래 화음을 분리하는 중' : '목표 화자를 추출하는 중',
+    processing: '등록한 목소리를 찾는 중',
   }[runState]
 
   return (
@@ -146,8 +150,8 @@ export function App() {
             <button type="button" aria-current={page === 'mix' ? 'page' : undefined} onClick={() => navigate('mix')}><Layers size={16} aria-hidden="true" /> WAV 혼합</button>
           </nav>
           <div className="header-status">
-            <span className={`status-dot ${model?.available ? 'online' : ''}`} />
-            {model?.available ? '모델 사용 가능' : (model || modelError ? '모델 연결 필요' : '모델 확인 중')}
+            <span className={`status-dot ${ready ? 'online' : ''}`} />
+            {ready ? '모델 사용 가능' : (info || modelError ? '모델 연결 필요' : '모델 확인 중')}
           </div>
         </div>
       </header>
@@ -156,9 +160,9 @@ export function App() {
         <section className="hero" aria-labelledby="intro-title">
           <div className="hero-content">
             <div className="hero-kicker"><span /> 파일 기반 데모</div>
-            <h1 id="intro-title">{page === 'extract' ? (singing ? '노래 화음 분리' : call ? '통화 상대 음성 추출' : '목표 화자 추출') : '두 WAV 혼합'}</h1>
+            <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : '두 WAV 혼합'}</h1>
             <p>{page === 'extract'
-              ? (singing ? '두 사람이 부른 화음에서 등록한 가수의 목소리를 분리합니다.' : call ? '통화 녹음에서 등록한 화자를 찾아, 확인되지 않는 구간을 음소거합니다.' : '혼합 음성에서 등록한 사람의 목소리를 추정해 분리합니다.')
+              ? '대화, 통화 녹음, 두 사람이 부른 무반주 화음에서 등록한 사람의 목소리를 찾습니다.'
               : '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'}</p>
           </div>
           <div className="hero-signal" aria-hidden="true">{BARS.map((height, index) => (
@@ -173,7 +177,7 @@ export function App() {
                 <span className="section-icon"><SlidersHorizontal size={20} aria-hidden="true" /></span>
                 <div><h2 id="setup-title">입력 설정</h2><p>혼합 음성과 목표 화자의 등록 음성을 올려 주세요.</p></div>
               </div>
-              {!singing && info?.example_available && (
+              {info?.example_available && (
                 <div className="example-control">
                   <select aria-label="예제 목표 화자" disabled={inputsLocked} value={exampleCue} onChange={(event) => setExampleCue(event.currentTarget.value === 'A' ? 'A' : 'B')}>
                     <option value="A">화자 A</option>
@@ -185,47 +189,33 @@ export function App() {
                 </div>
               )}
             </div>
-            <label className="mode-control">
-              <span>분리 대상</span>
-              <select value={mode} disabled={inputsLocked} onChange={(event) => {
-                const nextMode = event.currentTarget.value as Mode
-                setMode(nextMode)
-                if (nextMode !== 'harmony') setKeepEnrollment(null)
-                setResult(null)
-                setExtractError('')
-              }}>
-                <option value="speech">일반 음성</option>
-                <option value="call">통화 녹음</option>
-                <option value="harmony">노래 화음</option>
-              </select>
-            </label>
             <div className="upload-grid">
-              <Upload label="혼합 음성" hint={singing ? '두 사람이 부르는 무반주 화음 WAV · 1–30초' : call ? '통화 상황을 녹음한 WAV · 1–30초' : '여러 사람이 포함된 WAV · 최대 30초'} icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
-              <Upload label="등록 음성" hint={singing ? '빼고 싶은 사람만 부르는 별도 WAV · 1–20초' : '목표 화자 한 사람의 별도 녹음 · 1–20초'} icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
+              <Upload label="혼합 음성" hint="대화, 통화 또는 화음 WAV · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
+              <Upload label="등록 음성" hint="분리할 사람만 말하거나 부르는 별도 WAV · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
                 <EnrollmentRecorder active={page === 'extract'} disabled={busy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
-            {singing && model?.keep_enrollment_available && (
+            {canRegisterSecondSinger && (
               <details className="keep-enrollment">
                 <summary>남길 가수도 등록 <span>{keepEnrollment ? '등록됨' : '선택'}</span></summary>
-                <Upload label="남길 가수 음성" hint="남기고 싶은 사람만 부르는 별도 WAV · 1–20초" icon={ScanFace} file={keepEnrollment} disabled={inputsLocked} onChange={(next) => changeFile(next, 'keep')} />
+                <Upload label="남길 가수 음성" hint="화음 분리에 사용하는 별도 독창 WAV · 1–20초" icon={ScanFace} file={keepEnrollment} disabled={inputsLocked} onChange={(next) => changeFile(next, 'keep')} />
               </details>
             )}
             <div className="setup-actions">
               <div className="model-detail">
                 <Activity size={16} aria-hidden="true" />
-                <span>{model?.name || (singing ? '노래 화음 모델' : 'REAL-TSE BSRNN')} <span className="detail-separator">·</span> <span className="sample-format">16 kHz 모노</span></span>
-                {(!model?.available && (info || modelError)) && <button type="button" className="button-link" onClick={() => setModelRefresh((n) => n + 1)}>다시 확인</button>}
+                <span className="sample-format">16 kHz 모노</span>
+                {(!ready && (info || modelError)) && <button type="button" className="button-link" onClick={() => setModelRefresh((n) => n + 1)}>다시 확인</button>}
               </div>
-              <button type="button" className="primary" disabled={!mixture || !enroll || !model?.available || inputsLocked} onClick={() => void submit()}>
-                {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <AudioLines size={18} aria-hidden="true" />} {singing ? '화음 분리' : '음성 추출'}
+              <button type="button" className="primary" disabled={!mixture || !enroll || !ready || inputsLocked} onClick={() => void submit()}>
+                {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <AudioLines size={18} aria-hidden="true" />} 음성 추출
               </button>
             </div>
             {status && <p className="job-status" role="status">{status}</p>}
-            {(extractError || modelError || (info && !model?.available)) && (
+            {(extractError || modelError || (info && !ready)) && (
               <p className="error-notice" role="alert">
                 <CircleAlert size={17} aria-hidden="true" />
-                {extractError || modelError || (singing ? '노래 화음 모델을 설치한 뒤 다시 확인해 주세요.' : '추출하려면 서버에 REAL-TSE 체크포인트를 설치해 주세요.')}
+                {extractError || modelError || '자동 분리에 필요한 서버 모델을 설치해 주세요.'}
               </p>
             )}
           </section>
@@ -234,7 +224,7 @@ export function App() {
             <div className="section-heading results-heading">
               <div className="heading-with-icon">
                 <span className="section-icon"><Waves size={20} aria-hidden="true" /></span>
-                <div><h2 id="result-title">원본과 결과 비교</h2><p>{singing ? '원본, 목표 목소리만 남긴 결과, 목표 목소리를 뺀 결과를 비교하세요.' : '재생 위치를 유지하면서 원본과 추정 음성을 전환할 수 있습니다.'}</p></div>
+                <div><h2 id="result-title">원본과 결과 비교</h2><p>같은 재생 위치에서 원본과 결과를 비교할 수 있습니다.</p></div>
               </div>
               {result && (
                 <div className="metrics">
