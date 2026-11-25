@@ -1,0 +1,65 @@
+{
+  "chunk_samples": 2048,
+  "runs": [
+    {
+      "case": "e02-full",
+      "enrollment": "enroll.wav",
+      "seconds": 5.025,
+      "rtf": 0.883,
+      "p95_block_latency_ms": 3411.7,
+      "target_present": true,
+      "all_samples_muted": false,
+      "si_sdri_db": 13.08
+    },
+    {
+      "case": "e02-full",
+      "enrollment": "enroll_b.wav",
+      "seconds": 5.025,
+      "rtf": 0.65,
+      "p95_block_latency_ms": 2764.0,
+      "target_present": true,
+      "all_samples_muted": false,
+      "si_sdri_db": 13.45
+    },
+    {
+      "case": "a-b-overlap",
+      "enrollment": "enroll_b.wav",
+      "seconds": 6.0,
+      "rtf": 0.602,
+      "p95_block_latency_ms": 2721.1,
+      "target_present": true,
+      "all_samples_muted": true,
+      "si_sdri_db": null
+    },
+    {
+      "case": "1320-3575-absent",
+      "enrollment": "enroll.wav",
+      "seconds": 6.0,
+      "rtf": 0.565,
+      "p95_block_latency_ms": 2718.0,
+      "target_present": false,
+      "all_samples_muted": true,
+      "si_sdri_db": null
+    },
+    {
+      "case": "8455-b-absent",
+      "enrollment": "enroll.wav",
+      "seconds": 6.0,
+      "rtf": 0.615,
+      "p95_block_latency_ms": 2761.8,
+      "target_present": false,
+      "all_samples_muted": true,
+      "si_sdri_db": null
+    },
+    {
+      "case": "a-b-absent",
+      "enrollment": "enroll.wav",
+      "seconds": 5.025,
+      "rtf": 0.556,
+      "p95_block_latency_ms": 2705.9,
+      "target_present": false,
+      "all_samples_muted": true,
+      "si_sdri_db": null
+    }
+  ]
+}

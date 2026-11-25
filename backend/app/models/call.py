@@ -24,29 +24,34 @@ def unit(vector: Signal) -> Signal:
     return vector / max(1e-8, float(np.linalg.norm(vector)))
 
 
-def verify_speech(mixture: Signal, estimate: Signal, enrollment: Signal, embed: Callable[[Signal], Signal]) -> Signal:
-    """Choose a verified candidate and mute blocks that lack local evidence."""
-    references = np.stack((unit(embed(enrollment)), unit(embed(telephone_band(enrollment)))))
+class SpeakerVerifier:
+    def __init__(self, enrollment: Signal, embed: Callable[[Signal], Signal]) -> None:
+        self.embed = embed
+        self.references = np.stack((unit(embed(enrollment)), unit(embed(telephone_band(enrollment)))))
 
-    def similarity(signal: Signal) -> float:
+    def similarity(self, signal: Signal) -> float:
         if np.max(np.abs(signal)) < 1e-4:
             return -1.0
-        return float(np.max(references @ unit(embed(signal))))
+        return float(np.max(self.references @ unit(self.embed(signal))))
 
-    # The TSE objective is scale invariant. Match the estimated component's
-    # gain before subtracting it, so the residual can serve as a second candidate.
-    estimate_energy = float(estimate @ estimate)
-    gain = np.clip(float(mixture @ estimate) / max(1e-8, estimate_energy), 0, 2)
-    explained = gain ** 2 * estimate_energy / max(1e-8, float(mixture @ mixture))
-    candidate = estimate
-    score = similarity(candidate)
-    # A small subtraction leaves the caller's audio almost unchanged. Treat
-    # the residual as a candidate only after removing a substantial component.
-    if explained >= MIN_EXPLAINED_ENERGY:
-        residual = mixture - np.float32(gain) * estimate
-        residual_score = similarity(residual)
-        if residual_score >= max(MIN_MATCH, score + RESIDUAL_MARGIN):
-            candidate, score = residual, residual_score
+    def select(self, mixture: Signal, estimate: Signal) -> tuple[Signal, float]:
+        # The TSE objective is scale invariant, so match the component's gain before subtraction.
+        estimate_energy = float(estimate @ estimate)
+        gain = np.clip(float(mixture @ estimate) / max(1e-8, estimate_energy), -2, 2)
+        explained = gain ** 2 * estimate_energy / max(1e-8, float(mixture @ mixture))
+        score = self.similarity(estimate)
+        if explained >= MIN_EXPLAINED_ENERGY:
+            residual = mixture - np.float32(gain) * estimate
+            residual_score = self.similarity(residual)
+            if residual_score >= max(MIN_MATCH, score + RESIDUAL_MARGIN):
+                return residual, residual_score
+        return (-estimate if gain < 0 else estimate), score
+
+
+def verify_speech(mixture: Signal, estimate: Signal, enrollment: Signal, embed: Callable[[Signal], Signal]) -> Signal:
+    """Choose a verified candidate and mute blocks that lack local evidence."""
+    verifier = SpeakerVerifier(enrollment, embed)
+    candidate, score = verifier.select(mixture, estimate)
     if score < MIN_MATCH:
         return np.zeros_like(mixture)
     if len(candidate) <= CONTEXT:
@@ -60,7 +65,7 @@ def verify_speech(mixture: Signal, estimate: Signal, enrollment: Signal, embed: 
     for start in range(0, len(candidate), HOP):
         context_start = min(max(0, start + (HOP - CONTEXT) // 2), len(candidate) - CONTEXT)
         if context_start not in decisions:
-            decisions[context_start] = similarity(candidate[context_start:context_start + CONTEXT]) >= local_threshold
+            decisions[context_start] = verifier.similarity(candidate[context_start:context_start + CONTEXT]) >= local_threshold
         allowed = decisions[context_start]
         kept.append(allowed)
         if allowed:

@@ -26,6 +26,7 @@ flowchart LR
 | GET | `/api/v1/jobs/{id}/residual` | 노래 화음 모드에서 지정한 가수의 목소리를 뺀 PCM WAV |
 | GET | `/api/v1/jobs/{id}/original` | 16 kHz 모노 비교 재생용 혼합 PCM WAV |
 | GET | `/api/v1/examples/{name}` | 로컬에서 생성한 `mixed.wav`, `enroll.wav`, `enroll_b.wav` |
+| WebSocket | `/ws/v1/stream` | 등록 WAV를 최초로 받고 16 kHz 모노 little-endian Float32 PCM을 스트리밍 |
 
 `processing_ms`는 대기열 통과 이후의 시간으로 모델 로딩과 인코딩을 포함한다. `inference_ms`는 모델이 파형을 처리하는 데 걸린 시간이다. 원본과 결과는 같은 길이의 16 kHz 모노 WAV다. 비교 재생기는 선택한 음성이 바뀌어도 위치를 유지하며, 원본 다운로드 버튼은 선택한 파일을 그대로 제공한다. 브라우저 마이크 녹음은 1–20초 등록 WAV로 변환하며, 추출을 요청할 때 업로드한다.
 
@@ -48,3 +49,5 @@ flowchart LR
 | `VOICEFOCUS_CHECKPOINT_ARCHIVE` | 공식 다운로드 | 설치 시 재사용할 체크포인트 ZIP 경로 |
 
 스트리밍 실험은 causal 체크포인트의 등록 임베딩, STFT 입출력 겹침 샘플, 각 시간축 LSTM의 은닉 상태와 셀 상태를 세션별로 유지한다. 창이 완성돼 파형이 확정된 구간을 반환하며, 마지막 청크에서 원래 입력 길이에 맞춰 남은 샘플을 출력한다. 지연과 품질 측정은 [평가 결과](EVALUATION.md)에 기록했다.
+
+마이크 AudioWorklet은 2,048샘플(128 ms)마다 PCM을 보낸다. WebSocket은 등록 WAV를 검증한 뒤 `ready`를 보내고, 각 PCM 청크 처리 후 `processing_ms`를 응답한다. 검증을 통과한 후보 또는 무음은 별도의 바이너리 프레임으로 보낸다. 서버는 타임라인이 정렬된 혼합과 추정 음성의 최대 2.5초 구간을 사용해 0.75초 단위로 결과를 확정한다. `end`를 받으면 남은 샘플을 처리하고 연결을 닫는다. 브라우저는 미처리 입력이 누적되면 마이크를 정지한다. 서버는 마이크 세션을 한 번에 하나 처리하고 오디오를 세션 메모리에 보관한다.

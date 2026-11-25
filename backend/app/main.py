@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
@@ -40,6 +40,7 @@ from backend.app.models.realtse import (
     checkpoint_exists,
 )
 from backend.app.models import harmony, routing
+from backend.app.live import serve_live
 
 log = logging.getLogger(__name__)
 MAX_REQUEST_BYTES = 2 * MAX_FILE_BYTES + 64 * 1024
@@ -264,6 +265,8 @@ def create_app() -> FastAPI:
         example_dir=Path(os.environ.get("VOICEFOCUS_EXAMPLE_DIR", ROOT / "artifacts" / "synthetic" / "e02-full")).resolve(),
     )
     uploads = asyncio.Semaphore(2)
+    live_slot = asyncio.Lock()
+    live_model = DEFAULT_MODEL_DIR.with_name("spk_emb_causal_100").resolve()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -278,6 +281,10 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="VoiceFocus", version="0.1.0", lifespan=lifespan)
 
+    @app.websocket("/ws/v1/stream")
+    async def live(socket: WebSocket) -> None:
+        await serve_live(socket, live_model, runtime.device, checkpoint_exists(live_model), live_slot)
+
     @app.get("/api/v1/models")
     async def models(response: Response) -> dict:
         response.headers.update(NO_STORE)
@@ -291,6 +298,7 @@ def create_app() -> FastAPI:
             ],
             "example_available": all((runtime.example_dir / name).is_file() for name in EXAMPLE_FILES),
             "automatic_available": routing.available() and (runtime.model_ready or runtime.harmony_ready),
+            "live_available": checkpoint_exists(live_model),
         }
 
     @app.get("/api/v1/examples/{name}")

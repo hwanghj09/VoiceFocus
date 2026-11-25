@@ -8,6 +8,7 @@ import type { Job, ModelStatus } from './api'
 import { AudioPreview } from './components/AudioPreview'
 import { Comparison } from './components/Comparison'
 import { EnrollmentRecorder } from './components/EnrollmentRecorder'
+import { LivePreview } from './components/LivePreview'
 import { Upload } from './components/Upload'
 
 const BARS = [16, 21, 37, 24, 57, 86, 54, 106, 137, 76, 45, 63, 103, 67, 34, 58, 90, 145, 99, 66, 45, 76, 114, 142, 72, 44, 64, 110, 82, 40, 25, 42, 96, 67, 31, 49, 25, 14]
@@ -37,11 +38,12 @@ export function App() {
   const [extractError, setExtractError] = useState('')
   const [exampleCue, setExampleCue] = useState<'A' | 'B'>('A')
   const [recordingBusy, setRecordingBusy] = useState(false)
+  const [liveBusy, setLiveBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
   const ready = info?.automatic_available
   const canRegisterSecondSinger = info?.models.some((model) => model.keep_enrollment_available)
   const busy = runState !== 'idle'
-  const inputsLocked = busy || recordingBusy
+  const inputsLocked = busy || recordingBusy || liveBusy
 
   useEffect(() => {
     const controller = new AbortController()
@@ -192,7 +194,7 @@ export function App() {
             <div className="upload-grid">
               <Upload label="혼합 음성" hint="대화, 통화 또는 화음 WAV · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
               <Upload label="등록 음성" hint="분리할 사람만 말하거나 부르는 별도 WAV · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
-                <EnrollmentRecorder active={page === 'extract'} disabled={busy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
+                <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
             {canRegisterSecondSinger && (
@@ -219,6 +221,8 @@ export function App() {
               </p>
             )}
           </section>
+
+          {page === 'extract' && <LivePreview enrollment={enroll} available={Boolean(info?.live_available)} disabled={busy || recordingBusy} onBusy={setLiveBusy} />}
 
           <section className="output-section" aria-labelledby="result-title">
             <div className="section-heading results-heading">

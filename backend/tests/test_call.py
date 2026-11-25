@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from backend.app.audio.wav import SAMPLE_RATE
 from backend.app.models.call import verify_speech
@@ -14,9 +15,10 @@ def embedding(samples):
     return np.array([abs(samples @ np.exp(-2j * np.pi * frequency * time)) for frequency in (480, 720)])
 
 
-def test_call_switches_away_from_the_other_speaker():
+@pytest.mark.parametrize("gain", [1.25, -1.25])
+def test_call_switches_away_from_the_other_speaker(gain):
     target, other = voice(480), voice(720)
-    result = verify_speech(target + other, 1.25 * other, target, embedding)
+    result = verify_speech(target + other, gain * other, target, embedding)
     np.testing.assert_allclose(result, target, atol=1e-7, rtol=0)
 
 

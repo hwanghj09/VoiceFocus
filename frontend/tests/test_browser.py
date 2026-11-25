@@ -2,6 +2,7 @@
 import importlib
 import io
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -215,6 +216,22 @@ def test_microphone_permission_denied_keeps_file_upload_available(page, server):
     page.get_by_role("button", name="등록 음성 녹음", exact=True).click()
     expect(page.get_by_role("alert")).to_have_text("브라우저에서 마이크 권한을 허용해 주세요.")
     expect(page.get_by_role("button", name="등록 음성 파일 선택")).to_be_enabled()
+
+
+def test_live_microphone_streams_and_releases_audio_on_navigation(page, server, samples):
+    if not page.request.get(server + "/api/v1/models").json()["live_available"]:
+        pytest.skip("Install the causal REAL-TSE checkpoint to test the live microphone.")
+    page.add_init_script(TRACK_CAPTURE_SCRIPT)
+    page.goto(server)
+    page.get_by_label("등록 음성", exact=True).set_input_files(samples / "enroll.wav")
+    panel = page.get_by_role("region", name="실시간 마이크 실험")
+    expect(panel.get_by_role("checkbox")).not_to_be_checked()
+    panel.get_by_role("button", name="마이크 시작").click()
+    expect(panel.get_by_role("status")).to_have_text("마이크 처리 중", timeout=30_000)
+    expect(panel.get_by_text(re.compile(r"예상 재생 지연\s+[1-9][0-9]* ms"))).to_be_visible(timeout=20_000)
+    page.wait_for_function("[...document.querySelectorAll('.live-metrics meter')].every(meter => meter.value > 0)")
+    page.get_by_role("button", name="WAV 혼합", exact=True).click()
+    page.wait_for_function("window.testStreams.length === 1 && !window.testStreams[0].active")
 
 
 def test_cancelled_permission_releases_late_microphone(page, server):

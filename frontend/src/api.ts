@@ -11,6 +11,7 @@ export interface ModelStatus {
   models: ModelInfo[]
   example_available: boolean
   automatic_available: boolean
+  live_available: boolean
 }
 
 export type Mode = 'speech' | 'harmony' | 'call'

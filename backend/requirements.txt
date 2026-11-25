@@ -1,5 +1,6 @@
 fastapi>=0.115,<1
 uvicorn>=0.34,<1
+websockets>=13,<18
 python-multipart>=0.0.22,<1
 numpy>=1.26,<2.3
 scipy>=1.12,<1.17

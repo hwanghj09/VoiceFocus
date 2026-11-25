@@ -21,6 +21,14 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 대화와 통화 녹음에서는 등록한 사람을 확인하기 어려운 구간을 음소거합니다. 같은 재생 위치에서 **원본 혼합 음성**과 **추정 음성**을 전환해 들어 보세요. 실시간 자체 웹 통화는 후속 단계입니다. [통화 평가](docs/EVALUATION.md#통화-녹음에서-등록-화자-추출)
 
+### 실시간 마이크 실험
+
+```bash
+bash scripts/setup_model.sh spk_emb_causal_100
+```
+
+localhost 또는 HTTPS에서 등록 WAV를 올리고 **실시간 마이크 실험 → 마이크 시작**을 누르세요. 입력과 처리 음량, 최근 128 ms 청크의 서버 처리 시간, 평균 RTF, 예상 재생 지연을 확인할 수 있습니다. 헤드폰을 연결하고 **처리 음성 듣기**를 켜면 분리된 마이크 음성을 들을 수 있습니다. 마이크 정지 또는 화면 이동으로 전송이 끝납니다. [지연 및 품질 측정](docs/EVALUATION.md#브라우저-마이크-실험)
+
 ### 화음 분리 모델 설치
 
 두 사람이 함께 부르는 1–30초의 무반주 화음을 처리하려면 아래 스크립트로 화음 모델도 설치하세요. 혼합 녹음과 등록 녹음 모두에 노래가 감지되면 자동으로 화음 분리를 사용합니다. **목표 목소리만**과 **목표 제거 후**를 같은 위치에서 재생하거나 WAV로 내려받을 수 있습니다. **제거 대상 바꾸기**로 두 결과의 역할을 전환할 수 있습니다.
@@ -62,13 +70,15 @@ bash scripts/setup_model.sh spk_emb_causal_100
 python -m experiments.04_streaming.benchmark artifacts/librispeech/e02-full artifacts/streaming.json
 python -m experiments.04_streaming.benchmark_stateful \
   artifacts/librispeech/e02-full artifacts/streaming-stateful.json
+python -m experiments.04_streaming.benchmark_live artifacts/streaming-live.json \
+  --case artifacts/librispeech/e02-full/mixed.wav artifacts/librispeech/e02-full/enroll.wav artifacts/librispeech/e02-full/target.wav
 
 python -m scripts.fetch_samples librispeech-calls artifacts/calls-source
 python -m experiments.06_calls.evaluate artifacts/calls-source artifacts/calls \
   --pair a b --pair 1320 3575 --pair 8455 b
 ```
 
-`artifacts/eval-*/e02-full/`에 혼합 음성, A/B 등록별 추정 음성, 두 참조 음성이 저장됩니다. 오프라인 품질과 CPU 지연 측정은 [평가 결과](docs/EVALUATION.md)에서 확인할 수 있습니다. 청크 사이에 모델 상태를 유지해 지연을 줄였지만 기준을 충족하는 실시간 추출과 WebRTC는 후속 단계입니다.
+`artifacts/eval-*/e02-full/`에 혼합 음성, A/B 등록별 추정 음성, 두 참조 음성이 저장됩니다. 오프라인 품질과 CPU 지연 측정은 [평가 결과](docs/EVALUATION.md)에서 확인할 수 있습니다.
 
 ## 테스트
 
