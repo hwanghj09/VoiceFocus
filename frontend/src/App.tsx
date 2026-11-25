@@ -32,6 +32,7 @@ export function App() {
   const [modelRefresh, setModelRefresh] = useState(0)
   const [mixture, setMixture] = useState<File | null>(null)
   const [enroll, setEnroll] = useState<File | null>(null)
+  const [keepEnrollment, setKeepEnrollment] = useState<File | null>(null)
   const [runState, setRunState] = useState<'idle' | 'example' | 'upload' | 'queued' | 'processing'>('idle')
   const [result, setResult] = useState<ExtractionResult | null>(null)
   const [extractError, setExtractError] = useState('')
@@ -61,9 +62,10 @@ export function App() {
     setPage(next)
   }
 
-  function changeFile(next: File | null, type: 'mixture' | 'enroll') {
+  function changeFile(next: File | null, type: 'mixture' | 'enroll' | 'keep') {
     if (type === 'mixture') setMixture(next)
-    else setEnroll(next)
+    else if (type === 'enroll') setEnroll(next)
+    else setKeepEnrollment(next)
     setExtractError('')
     setResult(null)
   }
@@ -100,7 +102,7 @@ export function App() {
     const deadline = Date.now() + (singing ? 16 : 8) * 60_000
     const timer = window.setTimeout(() => controller.abort(), deadline - Date.now())
     try {
-      let job = await extract(mixture, enroll, controller.signal, mode)
+      let job = await extract(mixture, enroll, controller.signal, mode, keepEnrollment)
       while (job.status === 'queued' || job.status === 'processing') {
         setRunState(job.status)
         await sleep(700, controller.signal)
@@ -185,7 +187,9 @@ export function App() {
             <label className="mode-control">
               <span>분리 대상</span>
               <select value={mode} disabled={inputsLocked} onChange={(event) => {
-                setMode(event.currentTarget.value === 'harmony' ? 'harmony' : 'speech')
+                const nextMode = event.currentTarget.value === 'harmony' ? 'harmony' : 'speech'
+                setMode(nextMode)
+                if (nextMode === 'speech') setKeepEnrollment(null)
                 setResult(null)
                 setExtractError('')
               }}>
@@ -199,6 +203,12 @@ export function App() {
                 <EnrollmentRecorder active={page === 'extract'} disabled={busy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
+            {singing && model?.keep_enrollment_available && (
+              <details className="keep-enrollment">
+                <summary>남길 가수도 등록 <span>{keepEnrollment ? '등록됨' : '선택'}</span></summary>
+                <Upload label="남길 가수 음성" hint="남기고 싶은 사람만 부르는 별도 WAV · 1–20초" icon={ScanFace} file={keepEnrollment} disabled={inputsLocked} onChange={(next) => changeFile(next, 'keep')} />
+              </details>
+            )}
             <div className="setup-actions">
               <div className="model-detail">
                 <Activity size={16} aria-hidden="true" />

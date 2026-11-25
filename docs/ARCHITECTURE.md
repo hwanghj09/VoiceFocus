@@ -15,9 +15,9 @@ flowchart LR
 
 | 방식 | 경로 | 내용 |
 | --- | --- | --- |
-| GET | `/api/v1/models` | 모델 ID, 버전, 샘플링 주파수, 체크포인트 및 예제 준비 상태 |
+| GET | `/api/v1/models` | 모델 ID, 버전, 샘플링 주파수, 체크포인트 및 예제 준비 상태. 화음 모델의 `keep_enrollment_available`은 남길 가수 등록 지원 여부 |
 | POST | `/api/v1/mix` | multipart `a`, `b`를 혼합해 WAV 응답 |
-| POST | `/api/v1/extract` | multipart `mixture`, `enrollment`를 접수하고 작업 ID를 202로 반환. `mode=harmony` 쿼리로 노래 화음 모드 사용 |
+| POST | `/api/v1/extract` | multipart `mixture`, `enrollment`를 접수하고 작업 ID를 202로 반환. `mode=harmony`에서 남길 가수의 `keep_enrollment`도 선택적으로 접수 |
 | GET | `/api/v1/jobs/{id}` | `queued`, `processing`, `completed`, `failed` 상태 및 처리 시간 |
 | GET | `/api/v1/jobs/{id}/result` | 추정 음성 PCM WAV |
 | GET | `/api/v1/jobs/{id}/residual` | 노래 화음 모드에서 지정한 가수의 목소리를 뺀 PCM WAV |
@@ -26,7 +26,7 @@ flowchart LR
 
 `processing_ms`는 대기열 통과 이후의 시간으로 모델 로딩과 인코딩을 포함한다. `inference_ms`는 모델이 파형을 처리하는 데 걸린 시간이다. 원본과 결과는 같은 길이의 16 kHz 모노 WAV다. 비교 재생기는 선택한 음성이 바뀌어도 위치를 유지하며, 원본 다운로드 버튼은 선택한 파일을 그대로 제공한다. 브라우저 마이크 녹음은 1–20초 등록 WAV로 변환하며, 추출을 요청할 때 업로드한다.
 
-노래 화음 모드에서는 UNMIXX가 두 후보를 분리하고 겹치는 구간의 파형 상관으로 후보 순서를 맞춘다. 후보 합이 원본 파형과 일치하도록 오차를 두 후보에 배분한다. Sony CSL 노래 음색 임베딩과 중앙 음높이를 등록 음성과 비교해 목표와 나머지를 선택한다. 두 점수가 가깝거나 구간 연결이 모호하면 `uncertain_match`로 표시한다. 사용자는 두 트랙을 듣고 제거 대상을 바꿀 수 있다.
+노래 화음 모드에서는 UNMIXX가 두 후보를 분리하고 겹치는 구간의 파형 상관으로 순서를 맞춘다. 겹치는 구간이 조용하거나 파형 상관이 비슷하면 그 앞뒤의 음색을 비교해 같은 가수의 트랙을 잇는다. 후보 합이 원본 파형과 일치하도록 오차를 두 후보에 배분한다. Sony CSL 노래 음색 임베딩과 중앙 음높이를 등록 음성과 비교해 목표와 나머지를 선택한다. `keep_enrollment`를 함께 보내면 contrastive 및 VICReg 인코더를 사용하고, 두 등록 음성을 서로 다른 후보에 배정하는 두 조합의 점수를 비교한다. 두 점수가 가깝거나 구간 연결이 모호하면 `uncertain_match`로 표시한다. 사용자는 두 트랙을 듣고 제거 대상을 바꿀 수 있다.
 
 ## 저장 및 실행
 

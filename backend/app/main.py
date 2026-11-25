@@ -117,7 +117,9 @@ class Runtime:
             del self.jobs[job_id]
 
 
-async def infer(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal) -> None:
+async def infer(
+    runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal, keep_enrollment: Signal | None,
+) -> None:
     with TemporaryDirectory(prefix="voicefocus-") as temporary:
         work_dir = Path(temporary)
         mix, enroll, output, metrics = (
@@ -128,6 +130,10 @@ async def infer(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal)
         residual = work_dir / "residual.wav"
         is_harmony = job.mode == "harmony"
         mode_args = ["--residual", str(residual)] if is_harmony else ["--model", str(runtime.model_dir)]
+        if keep_enrollment is not None:
+            keep_enroll = work_dir / "keep-enroll.wav"
+            write_analysis_wav(keep_enroll, keep_enrollment)
+            mode_args.extend(("--keep-enroll", str(keep_enroll)))
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "backend.app.models.worker", "--device", runtime.device,
             "--mixture", str(mix), "--enroll", str(enroll),
@@ -165,12 +171,14 @@ async def infer(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal)
         job.uncertain_match = bool(metadata.get("uncertain_match"))
 
 
-async def run_job(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal) -> None:
+async def run_job(
+    runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal, keep_enrollment: Signal | None,
+) -> None:
     async with runtime.worker:
         job.status = "processing"
         start = monotonic()
         try:
-            await infer(runtime, job, mixture, enrollment)
+            await infer(runtime, job, mixture, enrollment, keep_enrollment)
             job.status = "completed"
         except TimeoutError:
             job.error = "처리 시간이 초과되었습니다. 더 짧은 혼합 음성을 사용해 주세요."
@@ -185,32 +193,41 @@ async def run_job(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signa
             job.expires_at = monotonic() + RESULT_TTL
 
 
-async def read_uploads(request: Request, limits: dict[str, tuple[float, int]]) -> list[Signal]:
+async def read_uploads(
+    request: Request, limits: dict[str, tuple[float, int]], optional: str | None = None,
+) -> dict[str, Signal]:
+    request_limit = MAX_REQUEST_BYTES + (MAX_FILE_BYTES if optional is not None else 0)
+
     async def limited_body():
         seen = 0
         async for chunk in request.stream():
             seen += len(chunk)
-            if seen > MAX_REQUEST_BYTES:
+            if seen > request_limit:
                 raise MultiPartException("Request is too large.")
             yield chunk
 
     length = request.headers.get("content-length")
-    if length is not None and (not length.isdigit() or int(length) > MAX_REQUEST_BYTES):
+    if length is not None and (not length.isdigit() or int(length) > request_limit):
         raise HTTPException(413, "업로드 용량을 초과했습니다.")
     media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
     if media_type != "multipart/form-data":
-        raise HTTPException(415, "WAV 파일 2개를 multipart/form-data로 올려 주세요.")
-    parser = MultiPartParser(request.headers, limited_body(), max_files=2, max_fields=0)
+        raise HTTPException(415, "WAV 파일을 multipart/form-data로 올려 주세요.")
+    parser = MultiPartParser(request.headers, limited_body(), max_files=len(limits), max_fields=0)
     try:
         form = await parser.parse()
     except MultiPartException as exc:
         status = 413 if exc.message == "Request is too large." else 400
-        raise HTTPException(status, "WAV 파일 2개와 업로드 용량을 확인해 주세요.") from exc
+        raise HTTPException(status, "WAV 파일과 업로드 용량을 확인해 주세요.") from exc
 
     try:
-        signals = []
+        names = [name for name, _ in form.multi_items()]
+        if set(names) - limits.keys() or len(set(names)) != len(names):
+            raise HTTPException(422, "올린 WAV 파일의 입력 항목을 확인해 주세요.")
+        signals = {}
         for name, (minimum, maximum) in limits.items():
             upload = form.get(name)
+            if name == optional and upload is None:
+                continue
             if not isinstance(upload, UploadFile):
                 raise HTTPException(422, f"{name} WAV 파일이 필요합니다.")
             if upload.size is not None and upload.size > MAX_FILE_BYTES:
@@ -221,7 +238,7 @@ async def read_uploads(request: Request, limits: dict[str, tuple[float, int]]) -
                 )
             except AudioError as exc:
                 raise HTTPException(422, f"{name}: {exc}") from exc
-            signals.append(signal)
+            signals[name] = signal
         return signals
     finally:
         await form.close()
@@ -262,7 +279,8 @@ def create_app() -> FastAPI:
                 {"id": MODEL_ID, "name": MODEL_NAME, "version": runtime.model_version,
                  "sample_rate": SAMPLE_RATE, "available": runtime.model_ready},
                 {"id": harmony.MODEL_ID, "name": harmony.MODEL_NAME, "version": harmony.MODEL_VERSION,
-                 "sample_rate": SAMPLE_RATE, "available": runtime.harmony_ready},
+                 "sample_rate": SAMPLE_RATE, "available": runtime.harmony_ready,
+                 "keep_enrollment_available": runtime.harmony_ready and harmony.VICREG_WEIGHTS.is_file()},
             ],
             "example_available": all((runtime.example_dir / name).is_file() for name in EXAMPLE_FILES),
         }
@@ -285,9 +303,10 @@ def create_app() -> FastAPI:
         if uploads.locked():
             raise HTTPException(503, "다른 파일을 읽고 있습니다. 잠시 후 다시 시도해 주세요.")
         async with uploads:
-            a, b = await read_uploads(request, {
+            audio = await read_uploads(request, {
                 "a": (0.1, MAX_MIX_SECONDS), "b": (0.1, MAX_MIX_SECONDS),
             })
+            a, b = audio["a"], audio["b"]
             combined = np.zeros(max(len(a), len(b)), dtype=np.float32)
             combined[:len(a)] += a
             combined[:len(b)] += b
@@ -302,10 +321,21 @@ def create_app() -> FastAPI:
         if len(runtime.tasks) >= MAX_ACTIVE_JOBS or uploads.locked():
             raise HTTPException(503, "처리 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
         async with uploads:
-            mixture, enrollment = await read_uploads(request, {
+            limits = {
                 "mixture": (1.0 if mode == "harmony" else 0.1, MAX_MIX_SECONDS),
                 "enrollment": (1.0, MAX_ENROLL_SECONDS),
-            })
+            }
+            optional = "keep_enrollment" if mode == "harmony" else None
+            if optional is not None:
+                limits[optional] = (1.0, MAX_ENROLL_SECONDS)
+            audio = await read_uploads(request, limits, optional)
+            mixture, enrollment = audio["mixture"], audio["enrollment"]
+            keep_enrollment = audio.get("keep_enrollment")
+            if keep_enrollment is not None:
+                if not harmony.VICREG_WEIGHTS.is_file():
+                    raise HTTPException(503, "남길 가수를 등록하려면 서버의 화음 모델을 업데이트해 주세요.")
+                if np.array_equal(enrollment, keep_enrollment):
+                    raise HTTPException(422, "뺄 가수와 남길 가수의 녹음을 각각 올려 주세요.")
             runtime.expire()
             if len(runtime.tasks) >= MAX_ACTIVE_JOBS:
                 raise HTTPException(503, "처리 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
@@ -315,7 +345,7 @@ def create_app() -> FastAPI:
             job_id = uuid4()
             job = Job(mode, *model, duration_seconds=len(mixture) / SAMPLE_RATE)
             runtime.jobs[job_id] = job
-            task = asyncio.create_task(run_job(runtime, job, mixture, enrollment))
+            task = asyncio.create_task(run_job(runtime, job, mixture, enrollment, keep_enrollment))
             runtime.tasks.add(task)
             task.add_done_callback(runtime.tasks.discard)
         response.headers.update(NO_STORE)

@@ -114,7 +114,9 @@ def submit_and_wait(page, harmony=False):
         page.get_by_role("button", name="화음 분리" if harmony else "음성 추출", exact=True).click()
     response = accepted.value
     assert response.status == 202, response.text()
-    expect(page.get_by_role("status")).to_have_text("화음 분리 완료" if harmony else "추출 완료", timeout=130_000)
+    expect(page.get_by_role("status")).to_have_text(
+        "화음 분리 완료" if harmony else "추출 완료", timeout=250_000 if harmony else 130_000,
+    )
     job = page.request.get(response.url.split("?", 1)[0].replace("/extract", f"/jobs/{response.json()['id']}")).json()
     assert job["status"] == "completed"
     assert job["processing_ms"] >= job["inference_ms"] > 0
@@ -331,3 +333,39 @@ def test_harmony_removes_enrolled_tenor_and_can_swap_outputs(page, server, tmp_p
     second = tmp_path / "swapped.wav"
     swapped.value.save_as(second)
     assert second.read_bytes() == target
+
+
+def test_harmony_two_references_disambiguate_singers_in_unison(page, server, tmp_path):
+    case_dir = os.environ.get("VOICEFOCUS_E2E_ACCURACY_DIR")
+    if not case_dir:
+        pytest.skip("Set VOICEFOCUS_E2E_ACCURACY_DIR to the Rossinyol unison fixture.")
+    case = Path(case_dir)
+    page.goto(server)
+    page.get_by_label("분리 대상").select_option("harmony")
+    page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
+    page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll-a.wav")
+    page.get_by_text("남길 가수도 등록").click()
+    page.get_by_label("남길 가수 음성", exact=True).set_input_files(case / "enroll-b.wav")
+    expect(page.get_by_text("enroll-b.wav", exact=True)).to_be_visible()
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth") == 390
+    assert submit_and_wait(page, harmony=True)["mode"] == "harmony"
+
+    with page.expect_download() as download:
+        page.get_by_role("link", name="목표 제거 후 WAV 다운로드").click()
+    result_path = tmp_path / "two-references.wav"
+    download.value.save_as(result_path)
+    result, rate = sf.read(result_path, dtype="float32")
+    retained, mixture, one_reference = (
+        sf.read(case / name, dtype="float32")[0]
+        for name in ("reference-b.wav", "mixed.wav", "remove-a-one.wav")
+    )
+    assert rate == 16000 and result.shape == mixture.shape
+    assert si_sdr(retained, result) - si_sdr(retained, mixture) > 5
+    assert si_sdr(retained, result) - si_sdr(retained, one_reference) > 10
+
+    page.get_by_label("분리 대상").select_option("speech")
+    expect(page.get_by_text("남길 가수도 등록")).to_have_count(0)
+    page.get_by_label("분리 대상").select_option("harmony")
+    page.get_by_text("남길 가수도 등록").click()
+    expect(page.get_by_role("button", name="남길 가수 음성 파일 선택")).to_be_visible()

@@ -39,3 +39,30 @@ def test_chunk_alignment_keeps_sources_and_exact_mixture(monkeypatch):
     np.testing.assert_allclose(stems[0], first, atol=1e-7, rtol=0)
     np.testing.assert_allclose(stems[1], second, atol=1e-7, rtol=0)
     np.testing.assert_allclose(stems.sum(axis=0), mixture, atol=1e-7, rtol=0)
+
+
+def test_two_enrollments_compare_the_two_complete_assignments():
+    from backend.app.models.harmony import assignment_margin
+
+    # Both recordings are closer to the first stem. The retained singer
+    # fits that stem much better, so the assignment puts the target second.
+    assert assignment_margin((0.66, 0.54)) > 0
+    assert assignment_margin((0.66, 0.54), (0.88, 0.62)) == pytest.approx(-0.07)
+    assert assignment_margin((0.66, 0.54), (0.66, 0.54)) == pytest.approx(0)
+
+
+def test_chunk_alignment_uses_voice_context_when_overlap_is_silent(monkeypatch):
+    frames = WINDOW + 2 * SAMPLE_RATE
+    first, second = sine(244, frames), sine(330, frames)
+    first[WINDOW - SAMPLE_RATE:WINDOW] = 0
+    second[WINDOW - SAMPLE_RATE:WINDOW] = 0
+    model = HarmonyExtractor.__new__(HarmonyExtractor)
+    chunks = iter([np.stack((first[:WINDOW], second[:WINDOW])),
+                   np.stack((second[WINDOW-SAMPLE_RATE:], first[WINDOW-SAMPLE_RATE:]))])
+    monkeypatch.setattr(model, "_split", lambda _part: next(chunks))
+    monkeypatch.setattr(model, "_embedding",
+                        lambda source: np.array([1., 0.]) if median_pitch(source) < 62 else np.array([0., 1.]))
+    stems, ambiguous = model.split(first + second)
+    assert not ambiguous
+    np.testing.assert_allclose(stems[0], first, atol=1e-7, rtol=0)
+    np.testing.assert_allclose(stems[1], second, atol=1e-7, rtol=0)

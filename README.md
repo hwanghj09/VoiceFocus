@@ -25,6 +25,8 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 별도로 화음 모델을 설치한 뒤 **분리 대상 → 노래 화음**을 선택하세요. 두 사람이 함께 부르는 1–30초의 무반주 WAV와 빼고 싶은 사람만 부르는 1–20초의 등록 WAV를 올리고 **화음 분리**를 누르세요. 결과에서 **목표 목소리만**과 **목표 제거 후**를 원본과 같은 위치에서 전환하거나 WAV로 내려받을 수 있습니다. 선택이 다르면 **제거 대상 바꾸기**로 두 결과의 역할을 바꿀 수 있습니다.
 
+두 사람이 같은 음을 부르거나 한쪽 목소리가 더 작으면 **남길 가수도 등록**을 열어 그 사람만 부르는 1–20초 WAV도 올려 보세요. 두 녹음을 각 분리 결과와 대조해 가수를 선택합니다. 기존 설치에서는 아래 스크립트를 다시 실행해 두 녹음을 비교하는 데 쓰는 인코더를 추가하세요. [정확도 측정](docs/EVALUATION.md#비슷한-음높이와-음량-차이)
+
 ```bash
 bash scripts/setup_harmony.sh
 ```
@@ -84,7 +86,9 @@ python -m pytest -q frontend/tests
 
 ```bash
 OPENBLAS_NUM_THREADS=1 python -m experiments.05_singing.evaluate /path/to/ChoralSingingDataset artifacts/harmony
-VOICEFOCUS_E2E_HARMONY_DIR=artifacts/harmony/nino-dios-1 python -m pytest -q frontend/tests
+OPENBLAS_NUM_THREADS=1 python -m experiments.05_singing.evaluate_accuracy /path/to/ChoralSingingDataset artifacts/harmony-accuracy
+VOICEFOCUS_E2E_HARMONY_DIR=artifacts/harmony/nino-dios-1 \
+VOICEFOCUS_E2E_ACCURACY_DIR=artifacts/harmony-accuracy/rossinyol-unison python -m pytest -q frontend/tests
 ```
 
 이 데모는 단일 프로세스로 로컬에서 실행하도록 구성했습니다. 동의를 확보한 음성만 올려 주세요. 업로드 원본의 서버 임시 파일은 처리 직후 삭제하며, 비교용 음성과 추출 결과는 서버 메모리에서 15분 뒤 만료됩니다. 실험 파일과 체크포인트는 Git에서 제외됩니다.

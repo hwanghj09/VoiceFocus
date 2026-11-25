@@ -58,9 +58,12 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--mixture", required=True, type=Path)
     parser.add_argument("--enroll", required=True, type=Path)
+    parser.add_argument("--keep-enroll", type=Path, help="Optional recording of the singer to keep in harmony mode.")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--metrics", required=True, type=Path)
     args = parser.parse_args()
+    if args.keep_enroll is not None and args.residual is None:
+        parser.error("--keep-enroll requires harmony separation.")
 
     mixture, mix_rate = sf.read(args.mixture, dtype="float32")
     enrollment, enroll_rate = sf.read(args.enroll, dtype="float32")
@@ -72,9 +75,14 @@ def main() -> None:
     if args.residual is not None:
         from backend.app.models.harmony import HarmonyExtractor
 
+        keep_enrollment = None
+        if args.keep_enroll is not None:
+            keep_enrollment, keep_rate = sf.read(args.keep_enroll, dtype="float32")
+            if keep_enrollment.ndim != 1 or keep_rate != SAMPLE_RATE:
+                parser.error("Expected a mono, 16 kHz reference for the singer to keep.")
         splitter = HarmonyExtractor(args.device)
         start = perf_counter()
-        result, remaining, uncertain = splitter.separate(mixture, enrollment)
+        result, remaining, uncertain = splitter.separate(mixture, enrollment, keep_enrollment)
         metadata["inference_ms"] = (perf_counter() - start) * 1000
         metadata["uncertain_match"] = uncertain
         write_analysis_wav(args.residual, remaining)

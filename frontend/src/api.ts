@@ -4,6 +4,7 @@ export interface ModelInfo {
   version: string
   sample_rate: number
   available: boolean
+  keep_enrollment_available?: boolean
 }
 
 export interface ModelStatus {
@@ -45,10 +46,13 @@ export async function getExample(name: string, signal: AbortSignal): Promise<Fil
   return new File([await response.blob()], name, { type: 'audio/wav' })
 }
 
-export async function extract(mixture: File, enrollment: File, signal: AbortSignal, mode: Mode = 'speech'): Promise<Job> {
+export async function extract(
+  mixture: File, enrollment: File, signal: AbortSignal, mode: Mode = 'speech', keepEnrollment: File | null = null,
+): Promise<Job> {
   const body = new FormData()
   body.append('mixture', mixture)
   body.append('enrollment', enrollment)
+  if (mode === 'harmony' && keepEnrollment) body.append('keep_enrollment', keepEnrollment)
   const path = mode === 'harmony' ? '/extract?mode=harmony' : '/extract'
   return (await request(path, { method: 'POST', body, signal })).json()
 }

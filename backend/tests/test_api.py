@@ -76,9 +76,10 @@ def test_extraction_job_returns_both_audio_files_and_expires(monkeypatch):
     monotonic = time.monotonic()
     monkeypatch.setattr(main, "monotonic", lambda: monotonic)
 
-    async def fake_infer(_runtime, job, mixture, enrollment):
+    async def fake_infer(_runtime, job, mixture, enrollment, keep_enrollment):
         assert len(mixture) == 17603
         assert len(enrollment) == 17600
+        assert keep_enrollment is None
         job.original = main.playback_wav(mixture)
         job.result = main.playback_wav(mixture * 0.5)
         job.inference_ms = 12.5
@@ -163,7 +164,7 @@ def test_queue_recovers_after_a_busy_response(monkeypatch):
     monkeypatch.setattr(main.Runtime, "model_ready", True)
     monkeypatch.setattr(main, "MAX_ACTIVE_JOBS", 1)
 
-    async def fake_infer(_runtime, job, mixture, _enrollment):
+    async def fake_infer(_runtime, job, mixture, _enrollment, _keep_enrollment):
         await asyncio.to_thread(release.wait, 5)
         audio = main.playback_wav(mixture)
         job.original = job.result = audio
@@ -190,7 +191,7 @@ def test_queue_recovers_after_a_busy_response(monkeypatch):
 def test_harmony_job_preserves_mode_and_returns_both_outputs(monkeypatch):
     monkeypatch.setattr(main.Runtime, "harmony_ready", True)
 
-    async def fake_infer(_runtime, job, mixture, _enrollment):
+    async def fake_infer(_runtime, job, mixture, _enrollment, _keep_enrollment):
         assert job.mode == "harmony"
         job.original = main.playback_wav(mixture)
         job.result = main.playback_wav(mixture * 0.25)
@@ -231,3 +232,41 @@ def test_unavailable_harmony_mode_keeps_speech_independent(monkeypatch):
         assert spoken["available"] is True
         assert singing["id"] == main.harmony.MODEL_ID and singing["available"] is False
         assert client.post("/api/v1/extract?mode=harmony").status_code == 503
+
+
+def test_optional_keep_recording_is_validated_and_forwarded(monkeypatch, tmp_path):
+    monkeypatch.setattr(main.Runtime, "harmony_ready", True)
+    monkeypatch.setattr(main.Runtime, "model_ready", True)
+    checkpoint = tmp_path / "vicreg.ts"
+    checkpoint.write_bytes(b"ready")
+    monkeypatch.setattr(main.harmony, "VICREG_WEIGHTS", checkpoint)
+    target = tone()
+    other = target[::-1].copy()
+
+    async def fake_infer(_runtime, job, mixture, enrollment, keep_enrollment):
+        assert job.mode == "harmony"
+        assert keep_enrollment is not None
+        np.testing.assert_allclose(enrollment, target, atol=1.0 / 32768, rtol=0)
+        np.testing.assert_allclose(keep_enrollment, other, atol=1.0 / 32768, rtol=0)
+        job.residual = main.playback_wav(mixture)
+
+    monkeypatch.setattr(main, "infer", fake_infer)
+    files = {"mixture": upload(target + other), "enrollment": upload(target)}
+    with TestClient(main.create_app()) as client:
+        route = "/api/v1/extract?mode=harmony"
+        response = client.post(route, files={**files, "keep_enrollment": upload(target)})
+        assert response.status_code == 422
+        response = client.post(route, files={**files, "keep_enrollment": upload(other[:8000])})
+        assert response.status_code == 422
+        response = client.post("/api/v1/extract", files={**files, "keep_enrollment": upload(other)})
+        assert response.status_code == 400
+        response = client.post(route, files={**files, "keep_enrollment": upload(other)})
+        assert response.status_code == 202
+        path = response.headers["Location"]
+        assert wait_for_job(client, path).json()["status"] == "completed"
+        assert client.get(path + "/residual").status_code == 200
+
+        checkpoint.unlink()
+        assert client.get("/api/v1/models").json()["models"][1]["keep_enrollment_available"] is False
+        response = client.post(route, files={**files, "keep_enrollment": upload(other)})
+        assert response.status_code == 503

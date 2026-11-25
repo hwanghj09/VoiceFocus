@@ -15,14 +15,17 @@ from backend.app.models.realtse import ROOT, VENDOR_DIR
 
 MODEL_ID = "harmony-vocal-split"
 MODEL_NAME = "UNMIXX · 노래 음색 대조"
-MODEL_VERSION = "unmixx-8e75052"
+MODEL_VERSION = "unmixx-8e75052-v2"
 SOURCE = VENDOR_DIR / "unmixx"
 WEIGHTS = ROOT / ".voicefocus" / "models" / "singer-identity.ts"
 SINGER_SHA256 = "97f17b9de1848877ed16801cb873b9c615fcf65cc23fa1c43dfa0d0fe948f40a"
+VICREG_WEIGHTS = WEIGHTS.with_name("singer-identity-vicreg.ts")
+VICREG_SHA256 = "70d2c1af904ee08cb2c163307fc54c5381774774a42c96eeb2896f475e2c8aeb"
 SPLITTER_SHA256 = "edd8bd0782f85ebb8a6b26bec47808b3130d15c2ccd49c741d2ff5983cb6c359"
 CONFIG_SHA256 = "93411b004da365abf26a694be310a79f655339c2a472e73872560943e1150412"
 WINDOW = 6 * SAMPLE_RATE
 OVERLAP = SAMPLE_RATE
+MATCH_CONTEXT = 3 * SAMPLE_RATE
 PITCH_WEIGHT = 0.025
 MATCH_MARGIN = 0.04
 
@@ -99,6 +102,14 @@ def overlap_order(previous: np.ndarray, current: np.ndarray) -> tuple[bool, bool
     return swapped > straight, abs(swapped - straight) < 0.2
 
 
+def assignment_margin(target_scores: tuple[float, float], other_scores: tuple[float, float] | None = None) -> float:
+    """Rank the two assignments. Positive means the first track is the target."""
+    target_margin = target_scores[0] - target_scores[1]
+    if other_scores is None:
+        return target_margin
+    return (target_margin + other_scores[1] - other_scores[0]) / 2
+
+
 class HarmonyExtractor:
     def __init__(self, device: str = "cpu") -> None:
         import torch
@@ -127,13 +138,16 @@ class HarmonyExtractor:
         self.separator.load_state_dict({key.removeprefix("audio_model."): value for key, value in parameters.items()})
         self.separator.to(self.device).eval()
         self.encoder = torch.jit.load(str(WEIGHTS), map_location=self.device).eval()
+        self.vicreg = None
 
-    def _embedding(self, signal: Signal) -> Signal:
+    def _embedding(self, signal: Signal, encoder=None) -> Signal:
         # The encoder expects 44.1 kHz and can also compare short vocal clips.
         audio = resample_poly(signal, 441, 160)
         audio /= max(1e-8, float(np.max(np.abs(audio))))
+        if encoder is None:
+            encoder = self.encoder
         with self.torch.inference_mode():
-            vector = self.encoder(self.torch.from_numpy(audio[None, :]).to(self.device)).cpu().numpy().reshape(-1)
+            vector = encoder(self.torch.from_numpy(audio[None, :]).to(self.device)).cpu().numpy().reshape(-1)
         norm = np.linalg.norm(vector)
         if not np.isfinite(norm) or norm <= 0:
             raise ValueError("Invalid singing voice embedding.")
@@ -148,6 +162,17 @@ class HarmonyExtractor:
             raise ValueError("Unexpected singing separation output.")
         return stems
 
+    def _context_margin(self, previous: np.ndarray, current: np.ndarray) -> float | None:
+        # When the common window contains silence, compare the voices on either side.
+        if min(previous.shape[1], current.shape[1]) < SAMPLE_RATE:
+            return None
+        if any(np.any(np.max(np.abs(context), axis=1) < 1e-3) for context in (previous, current)):
+            return None
+        before = np.stack([self._embedding(source) for source in previous])
+        after = np.stack([self._embedding(source) for source in current])
+        first, second = before @ after.T
+        return assignment_margin((float(first[0]), float(first[1])), (float(second[0]), float(second[1])))
+
     def split(self, mixture: Signal) -> tuple[np.ndarray, bool]:
         if mixture.ndim != 1 or len(mixture) < SAMPLE_RATE:
             raise ValueError("Harmony separation requires at least one second of mono audio.")
@@ -157,6 +182,12 @@ class HarmonyExtractor:
             start = stems.shape[1] - OVERLAP
             new = self._split(mixture[start:start + WINDOW])
             swap, ambiguous = overlap_order(stems[:, -OVERLAP:], new[:, :OVERLAP])
+            if ambiguous or np.max(np.abs(mixture[start:start + OVERLAP])) < 1e-4:
+                margin = self._context_margin(stems[:, max(0, start - MATCH_CONTEXT):start],
+                                              new[:, OVERLAP:OVERLAP + MATCH_CONTEXT])
+                ambiguous = margin is None or abs(margin) < MATCH_MARGIN
+                if not ambiguous and margin is not None:
+                    swap = margin < 0
             if swap:
                 new = new[::-1]
             weights = np.linspace(0, 1, OVERLAP, dtype=np.float32)
@@ -171,17 +202,29 @@ class HarmonyExtractor:
         uncertain |= bool(min(level) < 0.05 * max(level))
         return stems, uncertain
 
-    def identify(self, stems: np.ndarray, enrollment: Signal, uncertain: bool) -> tuple[Signal, Signal, bool]:
-        reference = self._embedding(enrollment)
+    def identify(
+        self, stems: np.ndarray, enrollment: Signal, uncertain: bool, other_enrollment: Signal | None = None,
+    ) -> tuple[Signal, Signal, bool]:
         candidates = (stems[0], stems[1])
-        first, second = match_scores(enrollment, candidates, (
-            float(reference @ self._embedding(candidates[0])),
-            float(reference @ self._embedding(candidates[1])),
-        ))
-        target = int(second > first)
-        uncertain |= abs(second - first) < MATCH_MARGIN
+        enrollments = [enrollment] if other_enrollment is None else [enrollment, other_enrollment]
+        reference_vectors = np.stack([self._embedding(cue) for cue in enrollments])
+        stem_vectors = np.stack([self._embedding(candidate) for candidate in candidates])
+        similarities = reference_vectors @ stem_vectors.T
+        if other_enrollment is not None:
+            if self.vicreg is None:
+                verify_file(VICREG_WEIGHTS, VICREG_SHA256)
+                self.vicreg = self.torch.jit.load(str(VICREG_WEIGHTS), map_location=self.device).eval()
+            reference_vectors = np.stack([self._embedding(cue, self.vicreg) for cue in enrollments])
+            stem_vectors = np.stack([self._embedding(candidate, self.vicreg) for candidate in candidates])
+            similarities = (similarities + reference_vectors @ stem_vectors.T) * 0.5
+
+        scores = [match_scores(cue, candidates, (float(pair[0]), float(pair[1])))
+                  for cue, pair in zip(enrollments, similarities, strict=True)]
+        margin = assignment_margin(*scores)
+        target = int(margin < 0)
+        uncertain |= abs(margin) < MATCH_MARGIN
         return stems[target], stems[1 - target], uncertain
 
-    def separate(self, mixture: Signal, enrollment: Signal) -> tuple[Signal, Signal, bool]:
+    def separate(self, mixture: Signal, enrollment: Signal, other_enrollment: Signal | None = None) -> tuple[Signal, Signal, bool]:
         stems, uncertain = self.split(mixture)
-        return self.identify(stems, enrollment, uncertain)
+        return self.identify(stems, enrollment, uncertain, other_enrollment)

@@ -444,3 +444,23 @@ footer svg { flex: none; }
 @media (min-width: 761px) {
   .preview-grid.with-residual { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+.keep-enrollment {
+  margin-top: 14px;
+}
+.keep-enrollment summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 660;
+  font-size: 13px;
+}
+.keep-enrollment summary span {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.keep-enrollment .upload {
+  max-width: 520px;
+  margin-top: 9px;
+}
