@@ -52,7 +52,9 @@ class Extractor:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract the enrolled speaker using REAL-TSE.")
-    parser.add_argument("--model", required=True, type=Path)
+    model_choice = parser.add_mutually_exclusive_group(required=True)
+    model_choice.add_argument("--model", type=Path)
+    model_choice.add_argument("--residual", type=Path, help="Separate singing voices and write the remaining audio here.")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--mixture", required=True, type=Path)
     parser.add_argument("--enroll", required=True, type=Path)
@@ -66,12 +68,23 @@ def main() -> None:
         (mixture, mix_rate), (enrollment, enroll_rate),
     )):
         parser.error("Expected mono, 16 kHz WAVs.")
-    extractor = Extractor(args.model, args.device)
-    start = perf_counter()
-    result = extractor.extract(mixture, enrollment)
-    elapsed = perf_counter() - start
+    metadata = {}
+    if args.residual is not None:
+        from backend.app.models.harmony import HarmonyExtractor
+
+        splitter = HarmonyExtractor(args.device)
+        start = perf_counter()
+        result, remaining, uncertain = splitter.separate(mixture, enrollment)
+        metadata["inference_ms"] = (perf_counter() - start) * 1000
+        metadata["uncertain_match"] = uncertain
+        write_analysis_wav(args.residual, remaining)
+    else:
+        extractor = Extractor(args.model, args.device)
+        start = perf_counter()
+        result = extractor.extract(mixture, enrollment)
+        metadata["inference_ms"] = (perf_counter() - start) * 1000
     write_analysis_wav(args.output, result)
-    args.metrics.write_text(json.dumps({"inference_ms": elapsed * 1000}), encoding="utf-8")
+    args.metrics.write_text(json.dumps(metadata), encoding="utf-8")
 
 
 if __name__ == "__main__":

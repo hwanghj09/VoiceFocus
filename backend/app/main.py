@@ -39,6 +39,7 @@ from backend.app.models.realtse import (
     VENDOR_DIR,
     checkpoint_exists,
 )
+from backend.app.models import harmony
 
 log = logging.getLogger(__name__)
 MAX_REQUEST_BYTES = 2 * MAX_FILE_BYTES + 64 * 1024
@@ -46,12 +47,17 @@ MAX_ACTIVE_JOBS = 4
 MAX_JOBS = 32
 RESULT_TTL = 15 * 60
 EXTRACTION_TIMEOUT = 120
+HARMONY_TIMEOUT = 240
 NO_STORE = {"Cache-Control": "no-store"}
 EXAMPLE_FILES = {"mixed.wav", "enroll.wav", "enroll_b.wav"}
+Mode = Literal["speech", "harmony"]
 
 
 @dataclass
 class Job:
+    mode: Mode
+    model_id: str
+    model_version: str
     status: Literal["queued", "processing", "completed", "failed"] = "queued"
     error: str | None = None
     processing_ms: int | None = None
@@ -59,9 +65,11 @@ class Job:
     duration_seconds: float = 0
     original: bytes | None = None
     result: bytes | None = None
+    residual: bytes | None = None
+    uncertain_match: bool = False
     expires_at: float = float("inf")
 
-    def public(self, job_id: UUID, model_version: str) -> dict:
+    def public(self, job_id: UUID) -> dict:
         return {
             "id": str(job_id),
             "status": self.status,
@@ -69,8 +77,10 @@ class Job:
             "processing_ms": self.processing_ms,
             "inference_ms": self.inference_ms,
             "duration_seconds": self.duration_seconds,
-            "model_id": MODEL_ID,
-            "model_version": model_version,
+            "mode": self.mode,
+            "model_id": self.model_id,
+            "model_version": self.model_version,
+            "uncertain_match": self.uncertain_match,
             "sample_rate": SAMPLE_RATE,
         }
 
@@ -97,13 +107,17 @@ class Runtime:
     def model_version(self) -> str:
         return self.model_dir.name if self.model_dir.name.startswith("spk_emb_") else MODEL_VERSION
 
+    @property
+    def harmony_ready(self) -> bool:
+        return harmony.available()
+
     def expire(self) -> None:
         now = monotonic()
         for job_id in [job_id for job_id, job in self.jobs.items() if job.expires_at <= now]:
             del self.jobs[job_id]
 
 
-async def infer(runtime: Runtime, mixture: Signal, enrollment: Signal) -> tuple[bytes, bytes, float]:
+async def infer(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal) -> None:
     with TemporaryDirectory(prefix="voicefocus-") as temporary:
         work_dir = Path(temporary)
         mix, enroll, output, metrics = (
@@ -111,15 +125,18 @@ async def infer(runtime: Runtime, mixture: Signal, enrollment: Signal) -> tuple[
         )
         write_analysis_wav(mix, mixture)
         write_analysis_wav(enroll, enrollment)
+        residual = work_dir / "residual.wav"
+        is_harmony = job.mode == "harmony"
+        mode_args = ["--residual", str(residual)] if is_harmony else ["--model", str(runtime.model_dir)]
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "backend.app.models.worker",
-            "--model", str(runtime.model_dir), "--device", runtime.device,
+            sys.executable, "-m", "backend.app.models.worker", "--device", runtime.device,
             "--mixture", str(mix), "--enroll", str(enroll),
-            "--output", str(output), "--metrics", str(metrics),
+            "--output", str(output), "--metrics", str(metrics), *mode_args,
             cwd=ROOT, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
         try:
-            _, stderr = await asyncio.wait_for(process.communicate(), timeout=EXTRACTION_TIMEOUT)
+            timeout = HARMONY_TIMEOUT if is_harmony else EXTRACTION_TIMEOUT
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
         finally:
             if process.returncode is None:
                 try:
@@ -129,13 +146,23 @@ async def infer(runtime: Runtime, mixture: Signal, enrollment: Signal) -> tuple[
                 await process.communicate()
 
         if process.returncode != 0:
-            log.error("REAL-TSE worker exited with %s: %s", process.returncode, stderr.decode(errors="replace")[-4000:])
-            raise RuntimeError("REAL-TSE inference failed.")
-        result, rate = sf.read(output, dtype="float32")
-        if rate != SAMPLE_RATE or result.shape != mixture.shape or not np.isfinite(result).all():
-            raise ValueError("Invalid result waveform.")
-        inference_ms = json.loads(metrics.read_text(encoding="utf-8"))["inference_ms"]
-        return playback_wav(mixture), playback_wav(result), round(inference_ms, 1)
+            log.error("VoiceFocus %s worker exited with %s: %s", job.mode, process.returncode, stderr.decode(errors="replace")[-4000:])
+            raise RuntimeError("VoiceFocus inference failed.")
+        signals = [mixture]
+        for path in ((output, residual) if is_harmony else (output,)):
+            signal, rate = sf.read(path, dtype="float32")
+            if rate != SAMPLE_RATE or signal.shape != mixture.shape or not np.isfinite(signal).all():
+                raise ValueError("Invalid result waveform.")
+            signals.append(signal)
+        metadata = json.loads(metrics.read_text(encoding="utf-8"))
+        if is_harmony:
+            # Match playback levels across all tracks when any estimate would clip.
+            gain = 0.98 / max(0.98, *(float(np.max(np.abs(signal))) for signal in signals))
+            signals = [signal * gain for signal in signals]
+            job.residual = playback_wav(signals[2])
+        job.original, job.result = (playback_wav(signal) for signal in signals[:2])
+        job.inference_ms = round(metadata["inference_ms"], 1)
+        job.uncertain_match = bool(metadata.get("uncertain_match"))
 
 
 async def run_job(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signal) -> None:
@@ -143,14 +170,15 @@ async def run_job(runtime: Runtime, job: Job, mixture: Signal, enrollment: Signa
         job.status = "processing"
         start = monotonic()
         try:
-            job.original, job.result, job.inference_ms = await infer(runtime, mixture, enrollment)
+            await infer(runtime, job, mixture, enrollment)
             job.status = "completed"
         except TimeoutError:
             job.error = "처리 시간이 초과되었습니다. 더 짧은 혼합 음성을 사용해 주세요."
             job.status = "failed"
         except Exception:
             log.exception("VoiceFocus extraction failed")
-            job.error = "화자 추출에 실패했습니다. 서버 모델 설정과 로그를 확인해 주세요."
+            label = "노래 화음 분리" if job.mode == "harmony" else "화자 추출"
+            job.error = f"{label}에 실패했습니다. 서버 모델 설정과 로그를 확인해 주세요."
             job.status = "failed"
         finally:
             job.processing_ms = round((monotonic() - start) * 1000)
@@ -230,10 +258,12 @@ def create_app() -> FastAPI:
     async def models(response: Response) -> dict:
         response.headers.update(NO_STORE)
         return {
-            "models": [{
-                "id": MODEL_ID, "name": MODEL_NAME, "version": runtime.model_version,
-                "sample_rate": SAMPLE_RATE, "available": runtime.model_ready,
-            }],
+            "models": [
+                {"id": MODEL_ID, "name": MODEL_NAME, "version": runtime.model_version,
+                 "sample_rate": SAMPLE_RATE, "available": runtime.model_ready},
+                {"id": harmony.MODEL_ID, "name": harmony.MODEL_NAME, "version": harmony.MODEL_VERSION,
+                 "sample_rate": SAMPLE_RATE, "available": runtime.harmony_ready},
+            ],
             "example_available": all((runtime.example_dir / name).is_file() for name in EXAMPLE_FILES),
         }
 
@@ -264,28 +294,33 @@ def create_app() -> FastAPI:
             return wav_response(playback_wav(combined), "voicefocus-mixed.wav")
 
     @app.post("/api/v1/extract", status_code=202)
-    async def extract(request: Request, response: Response) -> dict:
-        if not runtime.model_ready:
+    async def extract(request: Request, response: Response, mode: Mode = "speech") -> dict:
+        if mode == "speech" and not runtime.model_ready:
             raise HTTPException(503, "REAL-TSE 모델을 설치한 뒤 다시 시도해 주세요.")
+        if mode == "harmony" and not runtime.harmony_ready:
+            raise HTTPException(503, "노래 화음 모델을 설치한 뒤 다시 시도해 주세요.")
         if len(runtime.tasks) >= MAX_ACTIVE_JOBS or uploads.locked():
             raise HTTPException(503, "처리 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
         async with uploads:
             mixture, enrollment = await read_uploads(request, {
-                "mixture": (0.1, MAX_MIX_SECONDS), "enrollment": (1.0, MAX_ENROLL_SECONDS),
+                "mixture": (1.0 if mode == "harmony" else 0.1, MAX_MIX_SECONDS),
+                "enrollment": (1.0, MAX_ENROLL_SECONDS),
             })
             runtime.expire()
             if len(runtime.tasks) >= MAX_ACTIVE_JOBS:
                 raise HTTPException(503, "처리 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
             if len(runtime.jobs) >= MAX_JOBS:
                 raise HTTPException(503, "임시 결과 저장소가 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
-            job_id, job = uuid4(), Job(duration_seconds=len(mixture) / SAMPLE_RATE)
+            model = (harmony.MODEL_ID, harmony.MODEL_VERSION) if mode == "harmony" else (MODEL_ID, runtime.model_version)
+            job_id = uuid4()
+            job = Job(mode, *model, duration_seconds=len(mixture) / SAMPLE_RATE)
             runtime.jobs[job_id] = job
             task = asyncio.create_task(run_job(runtime, job, mixture, enrollment))
             runtime.tasks.add(task)
             task.add_done_callback(runtime.tasks.discard)
         response.headers.update(NO_STORE)
         response.headers["Location"] = f"/api/v1/jobs/{job_id}"
-        return job.public(job_id, runtime.model_version)
+        return job.public(job_id)
 
     def find_job(job_id: UUID) -> Job:
         runtime.expire()
@@ -297,21 +332,30 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/jobs/{job_id}")
     async def status(job_id: UUID, response: Response) -> dict:
         response.headers.update(NO_STORE)
-        return find_job(job_id).public(job_id, runtime.model_version)
+        return find_job(job_id).public(job_id)
 
     @app.get("/api/v1/jobs/{job_id}/result")
     async def result(job_id: UUID) -> Response:
         job = find_job(job_id)
-        if job.result is None:
+        if job.status != "completed" or job.result is None:
             raise HTTPException(409, "다운로드할 추출 결과가 없습니다.")
         return wav_response(job.result, "voicefocus-extracted.wav")
 
     @app.get("/api/v1/jobs/{job_id}/original")
     async def original(job_id: UUID) -> Response:
         job = find_job(job_id)
-        if job.original is None:
+        if job.status != "completed" or job.original is None:
             raise HTTPException(409, "비교 재생용 혼합 음성이 없습니다.")
         return wav_response(job.original, "voicefocus-input-16khz.wav")
+
+    @app.get("/api/v1/jobs/{job_id}/residual")
+    async def residual(job_id: UUID) -> Response:
+        job = find_job(job_id)
+        if job.mode != "harmony":
+            raise HTTPException(404, "노래 화음 작업의 제거 결과만 제공됩니다.")
+        if job.status != "completed" or job.residual is None:
+            raise HTTPException(409, "다운로드할 제거 결과가 없습니다.")
+        return wav_response(job.residual, "voicefocus-target-removed.wav")
 
     dist = ROOT / "frontend" / "dist"
     if (dist / "index.html").is_file():

@@ -21,6 +21,16 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 결과 화면의 공통 재생 위치에서 원하는 구간을 찾고 **원본 혼합 음성**과 **추정 음성**을 전환해 들어 보세요. 두 파형과 스펙트로그램은 같은 재생 위치를 표시합니다.
 
+### 노래 화음 분리
+
+별도로 화음 모델을 설치한 뒤 **분리 대상 → 노래 화음**을 선택하세요. 두 사람이 함께 부르는 1–30초의 무반주 WAV와 빼고 싶은 사람만 부르는 1–20초의 등록 WAV를 올리고 **화음 분리**를 누르세요. 결과에서 **목표 목소리만**과 **목표 제거 후**를 원본과 같은 위치에서 전환하거나 WAV로 내려받을 수 있습니다. 선택이 다르면 **제거 대상 바꾸기**로 두 결과의 역할을 바꿀 수 있습니다.
+
+```bash
+bash scripts/setup_harmony.sh
+```
+
+일부 Linux 환경에서는 Asteroid 의존성 설치에 C 컴파일러가 사용됩니다. 이 환경에서는 `CC=gcc bash scripts/setup_harmony.sh`로 설치할 수 있습니다. CPU에서 검증했으며 모든 비교·출력 파일은 16 kHz 모노입니다. 스크립트는 UNMIXX 소스와 체크포인트를 고정 버전에서 받아오고, MIT로 공개된 Sony CSL 노래 음색 인코더와 함께 사용합니다. UNMIXX 저장소에는 별도 라이선스가 표시되어 있지 않습니다. [UNMIXX](https://github.com/jihoojung0106/unmixx/tree/8e750521b5942f4717656cac86a23cf0bd90dea5) · [노래 음색 인코더](https://huggingface.co/BernardoTorres/singer-identity)
+
 입력 폼에 **예제 불러오기**를 표시하려면 아래 명령으로 예제를 만드세요. 합성 예제는 eSpeak NG가 필요합니다. LibriSpeech 명령은 OpenSLR의 CC BY 4.0 테스트 발췌를 사용하며, 아래 환경 변수로 해당 예제를 서버에 표시할 수 있습니다.
 
 ```bash
@@ -68,6 +78,13 @@ npm --prefix frontend run build
 python -m pip install -r backend/requirements-browser.txt
 python -m playwright install chromium
 python -m pytest -q frontend/tests
+```
+
+노래 화음 브라우저 테스트는 [합창 데이터의 개별 WAV](https://zenodo.org/records/2649950)와 위에서 설치한 화음 모델을 사용합니다.
+
+```bash
+OPENBLAS_NUM_THREADS=1 python -m experiments.05_singing.evaluate /path/to/ChoralSingingDataset artifacts/harmony
+VOICEFOCUS_E2E_HARMONY_DIR=artifacts/harmony/nino-dios-1 python -m pytest -q frontend/tests
 ```
 
 이 데모는 단일 프로세스로 로컬에서 실행하도록 구성했습니다. 동의를 확보한 음성만 올려 주세요. 업로드 원본의 서버 임시 파일은 처리 직후 삭제하며, 비교용 음성과 추출 결과는 서버 메모리에서 15분 뒤 만료됩니다. 실험 파일과 체크포인트는 Git에서 제외됩니다.

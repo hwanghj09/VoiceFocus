@@ -11,6 +11,8 @@ export interface ModelStatus {
   example_available: boolean
 }
 
+export type Mode = 'speech' | 'harmony'
+
 export interface Job {
   id: string
   status: 'queued' | 'processing' | 'completed' | 'failed'
@@ -18,6 +20,9 @@ export interface Job {
   processing_ms: number | null
   inference_ms: number | null
   duration_seconds: number
+  mode: Mode
+  model_version: string
+  uncertain_match: boolean
 }
 
 const BASE = '/api/v1'
@@ -40,11 +45,12 @@ export async function getExample(name: string, signal: AbortSignal): Promise<Fil
   return new File([await response.blob()], name, { type: 'audio/wav' })
 }
 
-export async function extract(mixture: File, enrollment: File, signal: AbortSignal): Promise<Job> {
+export async function extract(mixture: File, enrollment: File, signal: AbortSignal, mode: Mode = 'speech'): Promise<Job> {
   const body = new FormData()
   body.append('mixture', mixture)
   body.append('enrollment', enrollment)
-  return (await request('/extract', { method: 'POST', body, signal })).json()
+  const path = mode === 'harmony' ? '/extract?mode=harmony' : '/extract'
+  return (await request(path, { method: 'POST', body, signal })).json()
 }
 
 export async function mix(a: File, b: File, signal: AbortSignal): Promise<File> {
@@ -59,7 +65,7 @@ export async function getJob(id: string, signal: AbortSignal): Promise<Job> {
   return (await request('/jobs/' + id, { signal })).json()
 }
 
-export async function getAudio(id: string, type: 'original' | 'result', signal: AbortSignal): Promise<Blob> {
+export async function getAudio(id: string, type: 'original' | 'result' | 'residual', signal: AbortSignal): Promise<Blob> {
   return (await request('/jobs/' + id + '/' + type, { signal })).blob()
 }
 

@@ -76,10 +76,12 @@ def test_extraction_job_returns_both_audio_files_and_expires(monkeypatch):
     monotonic = time.monotonic()
     monkeypatch.setattr(main, "monotonic", lambda: monotonic)
 
-    async def fake_infer(_runtime, mixture, enrollment):
+    async def fake_infer(_runtime, job, mixture, enrollment):
         assert len(mixture) == 17603
         assert len(enrollment) == 17600
-        return main.playback_wav(mixture), main.playback_wav(mixture * 0.5), 12.5
+        job.original = main.playback_wav(mixture)
+        job.result = main.playback_wav(mixture * 0.5)
+        job.inference_ms = 12.5
 
     monkeypatch.setattr(main, "infer", fake_infer)
     with TestClient(main.create_app()) as client:
@@ -93,6 +95,8 @@ def test_extraction_job_returns_both_audio_files_and_expires(monkeypatch):
         done = wait_for_job(client, path).json()
         assert done["status"] == "completed"
         assert done["inference_ms"] == 12.5
+        assert done["mode"] == "speech"
+        assert client.get(path + "/residual").status_code == 404
         for name, peak in (("original", 0.2), ("result", 0.1)):
             audio = client.get(f"{path}/{name}")
             assert audio.status_code == 200
@@ -159,10 +163,11 @@ def test_queue_recovers_after_a_busy_response(monkeypatch):
     monkeypatch.setattr(main.Runtime, "model_ready", True)
     monkeypatch.setattr(main, "MAX_ACTIVE_JOBS", 1)
 
-    async def fake_infer(_runtime, mixture, _enrollment):
+    async def fake_infer(_runtime, job, mixture, _enrollment):
         await asyncio.to_thread(release.wait, 5)
         audio = main.playback_wav(mixture)
-        return audio, audio, 1.0
+        job.original = job.result = audio
+        job.inference_ms = 1.0
 
     monkeypatch.setattr(main, "infer", fake_infer)
     files = {"mixture": upload(tone()), "enrollment": upload(tone())}
@@ -180,3 +185,49 @@ def test_queue_recovers_after_a_busy_response(monkeypatch):
         assert second.status_code == 202
         assert second.json()["id"] != first.json()["id"]
         assert wait_for_job(client, second.headers["Location"]).json()["status"] == "completed"
+
+
+def test_harmony_job_preserves_mode_and_returns_both_outputs(monkeypatch):
+    monkeypatch.setattr(main.Runtime, "harmony_ready", True)
+
+    async def fake_infer(_runtime, job, mixture, _enrollment):
+        assert job.mode == "harmony"
+        job.original = main.playback_wav(mixture)
+        job.result = main.playback_wav(mixture * 0.25)
+        job.residual = main.playback_wav(mixture * 0.75)
+        job.inference_ms = 3.5
+        job.uncertain_match = True
+
+    monkeypatch.setattr(main, "infer", fake_infer)
+    with TestClient(main.create_app()) as client:
+        route = "/api/v1/extract?mode=harmony"
+        too_short = client.post(route, files={
+            "mixture": upload(tone(seconds=0.5)), "enrollment": upload(tone()),
+        })
+        assert too_short.status_code == 422
+        accepted = client.post(route, files={
+            "mixture": upload(tone()), "enrollment": upload(tone()),
+        })
+        assert accepted.status_code == 202
+        path = accepted.headers["Location"]
+        job = wait_for_job(client, path).json()
+        assert job["mode"] == "harmony"
+        assert job["model_id"] == main.harmony.MODEL_ID
+        assert job["uncertain_match"] is True
+        download = client.get(path + "/residual")
+        assert download.status_code == 200
+        assert "voicefocus-target-removed.wav" in download.headers["Content-Disposition"]
+        featured = client.get(path + "/result")
+        original = client.get(path + "/original")
+        signals = [sf.read(io.BytesIO(audio.content))[0] for audio in (original, featured, download)]
+        np.testing.assert_allclose(signals[1] + signals[2], signals[0], atol=2 / 32768, rtol=0)
+
+
+def test_unavailable_harmony_mode_keeps_speech_independent(monkeypatch):
+    monkeypatch.setattr(main.Runtime, "model_ready", True)
+    monkeypatch.setattr(main.Runtime, "harmony_ready", False)
+    with TestClient(main.create_app()) as client:
+        spoken, singing = client.get("/api/v1/models").json()["models"]
+        assert spoken["available"] is True
+        assert singing["id"] == main.harmony.MODEL_ID and singing["available"] is False
+        assert client.post("/api/v1/extract?mode=harmony").status_code == 503

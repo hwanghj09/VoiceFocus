@@ -4,7 +4,7 @@ import {
   Layers, LoaderCircle, Radio, ScanFace, ShieldCheck, SlidersHorizontal, Waves,
 } from 'lucide-react'
 import { extract, getAudio, getExample, getJob, getModels, mix, sleep } from './api'
-import type { Job, ModelStatus } from './api'
+import type { Job, Mode, ModelStatus } from './api'
 import { AudioPreview } from './components/AudioPreview'
 import { Comparison } from './components/Comparison'
 import { EnrollmentRecorder } from './components/EnrollmentRecorder'
@@ -21,10 +21,12 @@ interface ExtractionResult {
   job: Job
   original: Blob
   output: Blob
+  residual: Blob | null
 }
 
 export function App() {
   const [page, setPage] = useState<'extract' | 'mix'>('extract')
+  const [mode, setMode] = useState<Mode>('speech')
   const [info, setInfo] = useState<ModelStatus | null>(null)
   const [modelError, setModelError] = useState('')
   const [modelRefresh, setModelRefresh] = useState(0)
@@ -36,7 +38,8 @@ export function App() {
   const [exampleCue, setExampleCue] = useState<'A' | 'B'>('A')
   const [recordingBusy, setRecordingBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
-  const model = info?.models[0]
+  const singing = mode === 'harmony'
+  const model = info?.models.find((entry) => entry.id === (singing ? 'harmony-vocal-split' : 'real-tse-bsrnn-spk-emb'))
   const busy = runState !== 'idle'
   const inputsLocked = busy || recordingBusy
 
@@ -94,21 +97,22 @@ export function App() {
     setRunState('upload')
     setResult(null)
     setExtractError('')
-    const deadline = Date.now() + 8 * 60_000
+    const deadline = Date.now() + (singing ? 16 : 8) * 60_000
     const timer = window.setTimeout(() => controller.abort(), deadline - Date.now())
     try {
-      let job = await extract(mixture, enroll, controller.signal)
+      let job = await extract(mixture, enroll, controller.signal, mode)
       while (job.status === 'queued' || job.status === 'processing') {
         setRunState(job.status)
         await sleep(700, controller.signal)
         job = await getJob(job.id, controller.signal)
       }
       if (job.status === 'failed') throw new Error(job.error || '목표 화자를 추출하지 못했습니다.')
-      const [original, output] = await Promise.all([
+      const [original, output, residual] = await Promise.all([
         getAudio(job.id, 'original', controller.signal),
         getAudio(job.id, 'result', controller.signal),
+        job.mode === 'harmony' ? getAudio(job.id, 'residual', controller.signal) : null,
       ])
-      if (!controller.signal.aborted) setResult({ job, original, output })
+      if (!controller.signal.aborted) setResult({ job, original, output, residual })
     } catch (error) {
       if (!controller.signal.aborted) setExtractError(errorText(error))
       else if (Date.now() >= deadline) setExtractError('응답 대기 시간이 초과되었습니다.')
@@ -119,11 +123,11 @@ export function App() {
   }
 
   const status = {
-    idle: result ? '추출 완료' : '',
+    idle: result ? (singing ? '화음 분리 완료' : '추출 완료') : '',
     example: '예제 음성을 불러오는 중',
     upload: 'WAV 파일을 올리는 중',
     queued: '처리 대기 중',
-    processing: '목표 화자를 추출하는 중',
+    processing: singing ? '노래 화음을 분리하는 중' : '목표 화자를 추출하는 중',
   }[runState]
 
   return (
@@ -149,9 +153,9 @@ export function App() {
         <section className="hero" aria-labelledby="intro-title">
           <div className="hero-content">
             <div className="hero-kicker"><span /> 파일 기반 데모</div>
-            <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : '두 WAV 혼합'}</h1>
+            <h1 id="intro-title">{page === 'extract' ? (singing ? '노래 화음 분리' : '목표 화자 추출') : '두 WAV 혼합'}</h1>
             <p>{page === 'extract'
-              ? '혼합 음성에서 등록한 사람의 목소리를 추정해 분리합니다.'
+              ? (singing ? '두 사람이 부른 화음에서 등록한 가수의 목소리를 분리합니다.' : '혼합 음성에서 등록한 사람의 목소리를 추정해 분리합니다.')
               : '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'}</p>
           </div>
           <div className="hero-signal" aria-hidden="true">{BARS.map((height, index) => (
@@ -166,7 +170,7 @@ export function App() {
                 <span className="section-icon"><SlidersHorizontal size={20} aria-hidden="true" /></span>
                 <div><h2 id="setup-title">입력 설정</h2><p>혼합 음성과 목표 화자의 등록 음성을 올려 주세요.</p></div>
               </div>
-              {info?.example_available && (
+              {!singing && info?.example_available && (
                 <div className="example-control">
                   <select aria-label="예제 목표 화자" disabled={inputsLocked} value={exampleCue} onChange={(event) => setExampleCue(event.currentTarget.value === 'A' ? 'A' : 'B')}>
                     <option value="A">화자 A</option>
@@ -178,27 +182,38 @@ export function App() {
                 </div>
               )}
             </div>
+            <label className="mode-control">
+              <span>분리 대상</span>
+              <select value={mode} disabled={inputsLocked} onChange={(event) => {
+                setMode(event.currentTarget.value === 'harmony' ? 'harmony' : 'speech')
+                setResult(null)
+                setExtractError('')
+              }}>
+                <option value="speech">일반 음성</option>
+                <option value="harmony">노래 화음</option>
+              </select>
+            </label>
             <div className="upload-grid">
-              <Upload label="혼합 음성" hint="여러 사람이 포함된 WAV · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
-              <Upload label="등록 음성" hint="목표 화자 한 사람의 별도 녹음 · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
+              <Upload label="혼합 음성" hint={singing ? '두 사람이 부르는 무반주 화음 WAV · 1–30초' : '여러 사람이 포함된 WAV · 최대 30초'} icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
+              <Upload label="등록 음성" hint={singing ? '빼고 싶은 사람만 부르는 별도 WAV · 1–20초' : '목표 화자 한 사람의 별도 녹음 · 1–20초'} icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
                 <EnrollmentRecorder active={page === 'extract'} disabled={busy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
             <div className="setup-actions">
               <div className="model-detail">
                 <Activity size={16} aria-hidden="true" />
-                <span>{model?.name || 'REAL-TSE BSRNN'} <span className="detail-separator">·</span> <span className="sample-format">16 kHz 모노</span></span>
-                {(!model?.available && (model || modelError)) && <button type="button" className="button-link" onClick={() => setModelRefresh((n) => n + 1)}>다시 확인</button>}
+                <span>{model?.name || (singing ? '노래 화음 모델' : 'REAL-TSE BSRNN')} <span className="detail-separator">·</span> <span className="sample-format">16 kHz 모노</span></span>
+                {(!model?.available && (info || modelError)) && <button type="button" className="button-link" onClick={() => setModelRefresh((n) => n + 1)}>다시 확인</button>}
               </div>
               <button type="button" className="primary" disabled={!mixture || !enroll || !model?.available || inputsLocked} onClick={() => void submit()}>
-                {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <AudioLines size={18} aria-hidden="true" />} 음성 추출
+                {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <AudioLines size={18} aria-hidden="true" />} {singing ? '화음 분리' : '음성 추출'}
               </button>
             </div>
             {status && <p className="job-status" role="status">{status}</p>}
-            {(extractError || modelError || (model && !model.available)) && (
+            {(extractError || modelError || (info && !model?.available)) && (
               <p className="error-notice" role="alert">
                 <CircleAlert size={17} aria-hidden="true" />
-                {extractError || modelError || '추출하려면 서버에 REAL-TSE 체크포인트를 설치해 주세요.'}
+                {extractError || modelError || (singing ? '노래 화음 모델을 설치한 뒤 다시 확인해 주세요.' : '추출하려면 서버에 REAL-TSE 체크포인트를 설치해 주세요.')}
               </p>
             )}
           </section>
@@ -207,18 +222,18 @@ export function App() {
             <div className="section-heading results-heading">
               <div className="heading-with-icon">
                 <span className="section-icon"><Waves size={20} aria-hidden="true" /></span>
-                <div><h2 id="result-title">원본과 결과 비교</h2><p>재생 위치를 유지하면서 원본과 추정 음성을 전환할 수 있습니다.</p></div>
+                <div><h2 id="result-title">원본과 결과 비교</h2><p>{singing ? '원본, 목표 목소리만 남긴 결과, 목표 목소리를 뺀 결과를 비교하세요.' : '재생 위치를 유지하면서 원본과 추정 음성을 전환할 수 있습니다.'}</p></div>
               </div>
               {result && (
                 <div className="metrics">
                   <span>전체 처리 <b>{((result.job.processing_ms ?? 0) / 1000).toFixed(2)}초</b></span>
                   <span>모델 추론 <b>{((result.job.inference_ms ?? 0) / 1000).toFixed(2)}초</b></span>
-                  <span>{model?.version}</span>
+                  <span>{result.job.model_version}</span>
                 </div>
               )}
             </div>
             {result ? (
-              <Comparison key={result.job.id} original={result.original} output={result.output} inputFile={mixture} duration={result.job.duration_seconds} />
+              <Comparison key={result.job.id} original={result.original} output={result.output} residual={result.residual} uncertainMatch={result.job.uncertain_match} inputFile={mixture} duration={result.job.duration_seconds} />
             ) : (
               <div className="preview-grid">
                 <AudioPreview tone="input" label="원본 혼합 음성" description="비교 재생용 · 16 kHz 모노" blob={null} filename="voicefocus-original.wav" />

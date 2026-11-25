@@ -1,0 +1,13 @@
+song,segment,track,mixture_start_s,enrollment_start_s,target_si_sdri_db,retained_si_sdri_db,removed_target_gain_db,retained_gain_db,uncertain_match
+locus-iste,1,LI_soprano_1,150.25,21.25,20.21,20.24,-38.47,-0.02,False
+locus-iste,1,LI_alto_1,150.25,173.25,20.24,20.21,-54.16,-0.1,False
+locus-iste,2,LI_soprano_1,69.75,21.25,28.24,28.19,-44.73,-0.02,False
+locus-iste,2,LI_alto_1,69.75,173.25,28.19,28.24,-53.46,-0.05,False
+el-rossinyol,1,ER_tenor_1,126.25,117.5,18.51,18.52,-34.92,-0.05,False
+el-rossinyol,1,ER_bass_1,126.25,20.0,18.52,18.51,-45.05,-0.16,False
+el-rossinyol,2,ER_tenor_1,68.75,117.5,16.22,16.23,-34.32,-0.12,False
+el-rossinyol,2,ER_bass_1,68.75,20.0,16.23,16.22,-37.54,-0.17,False
+nino-dios,1,ND_soprano_2,55.0,30.75,19.65,19.64,-37.43,-0.1,False
+nino-dios,1,ND_tenor_2,55.0,95.0,19.64,19.65,-38.65,-0.12,False
+nino-dios,2,ND_soprano_2,18.0,30.75,21.77,21.79,-44.92,-0.01,False
+nino-dios,2,ND_tenor_2,18.0,95.0,21.79,21.77,-55.91,-0.05,False
