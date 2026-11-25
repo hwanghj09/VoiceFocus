@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env*
+node_modules/
+dist/
+artifacts/
+.voicefocus/
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.pt
+*.pth
+*.onnx
+.DS_Store

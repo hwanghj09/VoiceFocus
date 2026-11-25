@@ -1,0 +1,13 @@
+# Install torch and torchaudio 2.7.1 for the desired CPU/GPU first.
+# WeSep and WeSpeaker are checked out at pinned commits by scripts/setup_model.sh.
+PyYAML>=6.0.1,<7
+silero-vad==5.1.2
+tqdm>=4.66,<5
+kaldiio>=2.18,<3
+umap-learn>=0.5.9,<0.6
+hdbscan>=0.8.40,<0.9
+s3prl==0.4.18
+openai-whisper>=20240930
+transformers==4.51.3
+peft==0.15.2
+requests>=2.32,<3

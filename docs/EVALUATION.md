@@ -1,0 +1,38 @@
+# 평가 결과
+
+## 체크포인트와 재현 환경
+
+파일 데모에 REAL-TSE 공식 `spk_emb_100`을 사용했다. 주 WeSep 저장소의 최신 버전은 사전 학습 모델 배포를 준비 중이다. REAL-TSE의 소스는 `d9ed77d`, WeSpeaker는 `8f53b64`에서 고정했다. ZIP의 SHA-256을 검사한 뒤 필요한 체크포인트만 추출한다. 추론 코드 및 REAL-TSE 학습 파라미터의 Apache-2.0 조건과, 내장 ECAPA 파라미터에 적용되는 별도 업스트림 조건은 각 프로젝트 문서를 참조한다. [WeSep](https://github.com/wenet-e2e/wesep) · [REAL-TSE 및 체크포인트 조건](https://github.com/REAL-TSE/wesep-real-tse#2-download-pretrained-model) · [WeSpeaker](https://github.com/wenet-e2e/wespeaker)
+
+2026-11-25에 Python 3.12, PyTorch CPU 2.7.1, Intel Xeon Platinum 8573C, CPU 할당량 2개, 추론 스레드 2개에서 측정했다. 자연 음성은 LibriSpeech test-clean 화자 6930과 260의 독립 발화 6개씩을 사용했다. 합성 음성은 eSpeak NG 1.52.0의 두 음성으로 같은 문장을 읽게 했다. LibriSpeech는 OpenSLR에서 CC BY 4.0으로 제공하며, 원본과 파생 음성은 이 저장소에 보관하지 않는다. 두 화자 표본이므로 일반화 성능을 나타내지 않는다. [OpenSLR SLR12](https://www.openslr.org/12/) · [실험 재현](../README.md#실험-재현)
+
+## 등록 음성과 분리 결과
+
+| 측정 | 결과 |
+| --- | --- |
+| LibriSpeech 동일 화자 임베딩 코사인 유사도 중앙값, 10쌍 | 0.6691 |
+| LibriSpeech 다른 화자 임베딩 코사인 유사도 중앙값, 10쌍 | 0.1167 |
+| LibriSpeech 두 화자 기본 5개 혼합 × A/B 선택 SI-SDRi 중앙값 | +16.65 dB |
+| 같은 문장을 읽은 합성 음성 5개 혼합 × A/B 선택 SI-SDRi 중앙값 | +10.23 dB |
+| LibriSpeech 완전 겹침 E02, A 등록 및 B 등록 | +16.48 dB, +16.10 dB |
+| 합성 음성 완전 겹침 E02, A 등록 및 B 등록 | +8.56 dB, +10.55 dB |
+
+LibriSpeech E02에서 A 등록 결과는 A에 대해 16.55 dB, B에 대해 −30.09 dB의 SI-SDR을 보였다. B 등록 결과는 B에 대해 16.17 dB, A에 대해 −29.53 dB였다. 두 경우의 추출 WAV를 같은 혼합 WAV와 함께 재생할 수 있다. Chromium에서 동일한 5.025초 혼합을 업로드한 검증에서는 모델 로딩을 포함해 15.81초, 모델 추론에 4.22초가 걸렸다.
+
+실패는 자연 음성 기본 조건에서 두 건이었다. E02의 목표가 작은 경우와 E03의 B 선택에서는 지정하지 않은 화자가 출력됐다. 합성의 부분 겹침에서 A를 선택한 두 건도 실패했다. E05의 목표가 없는 자연 음성에서는 혼합 대비 출력 에너지가 **+1.94 dB**로 간섭 화자 발화가 유지됐다. E06의 가우시안 잡음에서는 +11.73 dB, E08의 300–3400 Hz 대역 제한에서는 +16.49 dB였다. 유사 음높이, 다른 녹음 장치, 실제 전화 코덱, 3인 혼합, 독립 청취자 비교는 추가 평가가 필요하다. 잘못된 WAV, 무음, 길이 초과를 API 테스트에서 확인했다.
+
+- 전체 파일 결과 [LibriSpeech CSV](results/librispeech.csv) · [합성 음성 CSV](results/synthetic.csv) · [임베딩 유사도 CSV](results/embeddings.csv)
+- 재생 파일은 평가 스크립트가 생성하는 `artifacts/eval-librispeech/e02-full/`의 `01-mixed.wav`, `02-extracted-a.wav`, `02-extracted-b.wav`를 사용한다.
+
+## 실시간 후보 측정
+
+동일한 LibriSpeech E02 혼합을 `spk_emb_causal_100`에 입력했다. 지정한 PCM 청크가 쌓이면 이전 추론 완료 시점에 맞춰 하나씩 처리하도록 시뮬레이션했다. 지연은 각 청크의 첫 샘플을 수집하기 시작한 시점부터 그 청크의 추정 파형이 준비될 때까지의 시간이며, 대기열을 포함한다. 마이크, 네트워크, 실제 스피커 출력 지연은 별도로 측정하지 않았다.
+
+| 청크 길이 | RTF | 모델 처리 중앙값 | 시뮬레이션 지연 p95 | SI-SDRi |
+| --- | --- | --- | --- | --- |
+| 64 ms | 2.124 | 128.52 ms | 5,468.25 ms | −11.20 dB |
+| 128 ms | 1.543 | 181.51 ms | 2,837.91 ms | −12.52 dB |
+| 256 ms | 1.682 | 426.33 ms | 3,560.47 ms | −16.31 dB |
+| 512 ms | 1.618 | 768.92 ms | 3,834.07 ms | −18.72 dB |
+
+causal 체크포인트에 E02의 전체 발화를 한 번에 전달했을 때 RTF는 0.939, SI-SDRi는 −24.73 dB였다. 이 결과로는 RTF 0.5 미만, 지연 100 ms 미만의 두 기준을 충족하지 못해 마이크 스트리밍과 WebRTC의 구현을 보류했다. [측정 JSON](results/streaming.json)

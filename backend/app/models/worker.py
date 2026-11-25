@@ -1,0 +1,78 @@
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+from time import perf_counter
+
+import numpy as np
+import soundfile as sf
+import torch
+from backend.app.audio.wav import SAMPLE_RATE, Signal, write_analysis_wav
+from backend.app.models.realtse import VENDOR_DIR
+
+
+class Extractor:
+    def __init__(self, model_dir: Path, device: str = "cpu") -> None:
+        sys.path[:0] = [str(VENDOR_DIR / "wesep-real-tse"), str(VENDOR_DIR / "wespeaker")]
+        from wesep import load_model_local
+
+        torch.set_num_threads(int(os.environ.get("VOICEFOCUS_TORCH_THREADS", "2")))
+        self.extractor = load_model_local(str(model_dir))
+        self.extractor.set_device(device)
+        self.extractor.set_output_norm(False)
+        if self.extractor.resample_rate != SAMPLE_RATE:
+            raise ValueError("VoiceFocus expects a 16 kHz model.")
+
+    def extract(self, mixture: Signal, enrollment: Signal) -> Signal:
+        # The upstream iSTFT rounds down to a whole hop if no length is set.
+        hop = self.extractor.model.sep_model.stft.hop_length
+        padded = np.pad(mixture, (0, -len(mixture) % hop), mode="reflect")
+        with torch.inference_mode():
+            result = self.extractor.extract_speech_from_pcm(
+                torch.from_numpy(padded[None, :]), SAMPLE_RATE,
+                torch.from_numpy(enrollment[None, :]), SAMPLE_RATE,
+            )
+        if result is None or result.numel() != len(padded):
+            raise ValueError("Unexpected TSE output length.")
+        signal = result.numpy().reshape(-1)[:len(mixture)]
+        if not np.isfinite(signal).all():
+            raise ValueError("TSE returned invalid samples.")
+        return signal
+
+    def embedding(self, signal: Signal) -> Signal:
+        frontend = self.extractor.model.spk_ft
+        waveform = torch.from_numpy(signal[None, :]).to(self.extractor.device)
+        with torch.inference_mode():
+            result = frontend.encoder(frontend.fbank(waveform))
+            if isinstance(result, (list, tuple)):
+                result = result[-1]
+        return result.cpu().numpy().reshape(-1)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Extract the enrolled speaker using REAL-TSE.")
+    parser.add_argument("--model", required=True, type=Path)
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--mixture", required=True, type=Path)
+    parser.add_argument("--enroll", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--metrics", required=True, type=Path)
+    args = parser.parse_args()
+
+    mixture, mix_rate = sf.read(args.mixture, dtype="float32")
+    enrollment, enroll_rate = sf.read(args.enroll, dtype="float32")
+    if any(data.ndim != 1 or rate != SAMPLE_RATE for data, rate in (
+        (mixture, mix_rate), (enrollment, enroll_rate),
+    )):
+        parser.error("Expected mono, 16 kHz WAVs.")
+    extractor = Extractor(args.model, args.device)
+    start = perf_counter()
+    result = extractor.extract(mixture, enrollment)
+    elapsed = perf_counter() - start
+    write_analysis_wav(args.output, result)
+    args.metrics.write_text(json.dumps({"inference_ms": elapsed * 1000}), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

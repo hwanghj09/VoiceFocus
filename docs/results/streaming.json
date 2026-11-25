@@ -1,0 +1,39 @@
+{
+  "checkpoint": "spk_emb_causal_100",
+  "whole_rtf": 0.939,
+  "whole_si_sdri_db": -24.73,
+  "chunks": [
+    {
+      "chunk_ms": 64,
+      "chunks": 78,
+      "rtf": 2.124,
+      "p50_inference_ms": 128.52,
+      "p95_pipeline_ms": 5468.25,
+      "si_sdri_db": -11.2
+    },
+    {
+      "chunk_ms": 128,
+      "chunks": 39,
+      "rtf": 1.543,
+      "p50_inference_ms": 181.51,
+      "p95_pipeline_ms": 2837.91,
+      "si_sdri_db": -12.52
+    },
+    {
+      "chunk_ms": 256,
+      "chunks": 19,
+      "rtf": 1.682,
+      "p50_inference_ms": 426.33,
+      "p95_pipeline_ms": 3560.47,
+      "si_sdri_db": -16.31
+    },
+    {
+      "chunk_ms": 512,
+      "chunks": 9,
+      "rtf": 1.618,
+      "p50_inference_ms": 768.92,
+      "p95_pipeline_ms": 3834.07,
+      "si_sdri_db": -18.72
+    }
+  ]
+}
