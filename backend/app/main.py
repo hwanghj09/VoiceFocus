@@ -41,6 +41,7 @@ from backend.app.models.realtse import (
 )
 from backend.app.models import harmony, routing
 from backend.app.live import serve_live
+from backend.app.calls import Room, serve_call
 
 log = logging.getLogger(__name__)
 MAX_REQUEST_BYTES = 2 * MAX_FILE_BYTES + 64 * 1024
@@ -266,6 +267,7 @@ def create_app() -> FastAPI:
     )
     uploads = asyncio.Semaphore(2)
     live_slot = asyncio.Lock()
+    rooms: dict[str, Room] = {}
     live_model = DEFAULT_MODEL_DIR.with_name("spk_emb_causal_100").resolve()
 
     @asynccontextmanager
@@ -284,6 +286,10 @@ def create_app() -> FastAPI:
     @app.websocket("/ws/v1/stream")
     async def live(socket: WebSocket) -> None:
         await serve_live(socket, live_model, runtime.device, checkpoint_exists(live_model), live_slot)
+
+    @app.websocket("/ws/v1/calls")
+    async def calls(socket: WebSocket) -> None:
+        await serve_call(socket, rooms)
 
     @app.get("/api/v1/models")
     async def models(response: Response) -> dict:

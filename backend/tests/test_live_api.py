@@ -43,3 +43,7 @@ def test_live_stream_validates_input_and_releases_session(monkeypatch):
         with client.websocket_connect("/ws/v1/stream") as next_socket:
             next_socket.send_bytes(cue.getvalue())
             assert next_socket.receive_json()["ready"] is True
+            with client.websocket_connect("/ws/v1/stream") as queued:
+                queued.send_bytes(cue.getvalue())
+                next_socket.close()
+                assert queued.receive_json()["ready"] is True

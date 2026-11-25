@@ -234,6 +234,56 @@ def test_live_microphone_streams_and_releases_audio_on_navigation(page, server, 
     page.wait_for_function("window.testStreams.length === 1 && !window.testStreams[0].active")
 
 
+def test_web_call_relays_audio_both_ways_and_switches_to_filtered_playback(browser, server, samples):
+    first = browser.new_context(viewport={"width": 390, "height": 844})
+    second = browser.new_context()
+    try:
+        host, guest = first.new_page(), second.new_page()
+        for tab in (host, guest):
+            tab.add_init_script(TRACK_CAPTURE_SCRIPT)
+            tab.goto(server)
+            tab.get_by_role("navigation").get_by_role("button", name="웹 통화").click()
+        assert host.evaluate("document.documentElement.scrollWidth") == 390
+        host.get_by_role("button", name="방 만들기").click()
+        expect(host.get_by_text("상대 참가 대기 중", exact=True)).to_be_visible()
+        room = host.get_by_label("공유할 방 코드").inner_text()
+        guest.get_by_label("방 코드", exact=True).fill(room)
+        guest.get_by_role("button", name="방 참가").click()
+        for tab in (host, guest):
+            expect(tab.get_by_text("통화 연결됨", exact=True)).to_be_visible(timeout=20_000)
+            tab.wait_for_function("""() => {
+                const audio = document.querySelector('.call-room audio');
+                return audio?.srcObject?.getAudioTracks()[0]?.muted === false && audio.currentTime > 0;
+            }""")
+            tab.get_by_role("navigation").get_by_role("button", name="웹 통화").click()
+            assert not tab.locator(".call-room audio").evaluate("audio => audio.paused")
+
+        if host.request.get(server + "/api/v1/models").json()["live_available"]:
+            for tab in (host, guest):
+                tab.get_by_label("상대 등록 음성", exact=True).set_input_files(samples / "enroll.wav")
+            for tab in (host, guest):
+                raw = tab.locator(".call-room audio")
+                tab.get_by_role("button", name="VoiceFocus 켜기").click()
+                assert raw.evaluate("audio => audio.muted")
+                expect(tab.get_by_text(re.compile(r"처리 음성 · 예상 지연 [0-9]+ ms"))).to_be_visible(timeout=40_000)
+                tab.wait_for_function("document.querySelector('.call-room meter')?.value > 0")
+                if tab is host:
+                    guest.get_by_role("button", name="VoiceFocus 켜기").click()
+                    expect(guest.get_by_text("음성 처리 중단 · 재생 음소거")).to_be_visible()
+                    assert guest.locator(".call-room audio").evaluate("audio => audio.muted")
+                    guest.get_by_role("button", name="VoiceFocus 끄기").click()
+                tab.get_by_role("button", name="VoiceFocus 끄기").click()
+                assert not raw.evaluate("audio => audio.muted")
+
+        guest.get_by_role("navigation").get_by_role("button", name="화자 추출").click()
+        expect(host.get_by_text("상대가 통화를 종료했습니다.")).to_be_visible()
+        for tab in (host, guest):
+            tab.wait_for_function("window.testStreams.length === 1 && !window.testStreams[0].active")
+    finally:
+        first.close()
+        second.close()
+
+
 def test_cancelled_permission_releases_late_microphone(page, server):
     page.add_init_script("""
         const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);

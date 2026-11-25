@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Activity, ArrowDownToLine, AudioLines, AudioWaveform, CircleAlert, FlaskConical,
-  Layers, LoaderCircle, Radio, ScanFace, ShieldCheck, SlidersHorizontal, Waves,
+  Layers, LoaderCircle, Phone, Radio, ScanFace, ShieldCheck, SlidersHorizontal, Waves,
 } from 'lucide-react'
 import { extract, getAudio, getExample, getJob, getModels, mix, sleep } from './api'
 import type { Job, ModelStatus } from './api'
@@ -9,6 +9,7 @@ import { AudioPreview } from './components/AudioPreview'
 import { Comparison } from './components/Comparison'
 import { EnrollmentRecorder } from './components/EnrollmentRecorder'
 import { LivePreview } from './components/LivePreview'
+import { CallRoom } from './components/CallRoom'
 import { Upload } from './components/Upload'
 
 const BARS = [16, 21, 37, 24, 57, 86, 54, 106, 137, 76, 45, 63, 103, 67, 34, 58, 90, 145, 99, 66, 45, 76, 114, 142, 72, 44, 64, 110, 82, 40, 25, 42, 96, 67, 31, 49, 25, 14]
@@ -26,7 +27,7 @@ interface ExtractionResult {
 }
 
 export function App() {
-  const [page, setPage] = useState<'extract' | 'mix'>('extract')
+  const [page, setPage] = useState<'extract' | 'mix' | 'call'>('extract')
   const [info, setInfo] = useState<ModelStatus | null>(null)
   const [modelError, setModelError] = useState('')
   const [modelRefresh, setModelRefresh] = useState(0)
@@ -59,6 +60,7 @@ export function App() {
   useEffect(() => () => extraction.current?.abort(), [])
 
   function navigate(next: typeof page) {
+    if (next === page) return
     for (const audio of document.querySelectorAll('audio')) audio.pause()
     setPage(next)
   }
@@ -150,8 +152,9 @@ export function App() {
           <nav className="nav" aria-label="오디오 도구">
             <button type="button" aria-current={page === 'extract' ? 'page' : undefined} onClick={() => navigate('extract')}><Radio size={16} aria-hidden="true" /> 화자 추출</button>
             <button type="button" aria-current={page === 'mix' ? 'page' : undefined} onClick={() => navigate('mix')}><Layers size={16} aria-hidden="true" /> WAV 혼합</button>
+            <button type="button" aria-current={page === 'call' ? 'page' : undefined} onClick={() => navigate('call')}><Phone size={16} aria-hidden="true" /> 웹 통화</button>
           </nav>
-          <div className="header-status">
+          <div className="header-status" hidden={page === 'call'}>
             <span className={`status-dot ${ready ? 'online' : ''}`} />
             {ready ? '모델 사용 가능' : (info || modelError ? '모델 연결 필요' : '모델 확인 중')}
           </div>
@@ -161,11 +164,12 @@ export function App() {
       <main className="layout">
         <section className="hero" aria-labelledby="intro-title">
           <div className="hero-content">
-            <div className="hero-kicker"><span /> 파일 기반 데모</div>
-            <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : '두 WAV 혼합'}</h1>
+            <div className="hero-kicker"><span /> {page === 'call' ? 'WebRTC 실험' : '파일 기반 데모'}</div>
+            <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : page === 'mix' ? '두 WAV 혼합' : '웹 통화'}</h1>
             <p>{page === 'extract'
               ? '대화, 통화 녹음, 두 사람이 부른 무반주 화음에서 등록한 사람의 목소리를 찾습니다.'
-              : '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'}</p>
+              : page === 'mix' ? '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'
+                : '두 브라우저를 연결하고 상대의 원본 음성과 처리 음성을 전환해 들어 보세요.'}</p>
           </div>
           <div className="hero-signal" aria-hidden="true">{BARS.map((height, index) => (
             <i key={index} style={{ height, opacity: index > 3 && index < 32 ? 0.94 : 0.48 }} />
@@ -249,6 +253,8 @@ export function App() {
             )}
           </section>
         </div>
+
+        {page === 'call' && <CallRoom filterAvailable={Boolean(info?.live_available)} />}
 
         <MixPage hidden={page !== 'mix'} canTransfer={!busy} onTransfer={(file) => {
           changeFile(file, 'mixture')

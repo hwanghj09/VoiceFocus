@@ -418,6 +418,12 @@ footer svg { flex: none; }
 .live-monitor, .live-metrics, .live-metrics label { display: flex; align-items: center; gap: 8px; }
 .live-monitor { margin: 12px 0; }
 .live-metrics { flex-wrap: wrap; gap: 8px 16px; }
+.call-room p { color: var(--muted); font-size: 13px; }
+.call-room output { color: var(--ink); font-family: monospace; font-size: 15px; }
+.join-call { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.join-call input { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.call-filter { margin-top: 18px; display: grid; justify-items: start; gap: 10px; }
+.call-filter .upload { width: 100%; max-width: 430px; }
 
 .harmony-review {
   display: flex;
