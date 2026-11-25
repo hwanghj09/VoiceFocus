@@ -18,10 +18,12 @@ flowchart LR
 
 | 방식 | 경로 | 내용 |
 | --- | --- | --- |
+| GET | `/healthz` | HTTP 프로세스 상태 확인 |
 | GET | `/api/v1/models` | 모델, 예제 준비 상태와 자동 분리 가능 여부 `automatic_available`. 화음 모델의 `keep_enrollment_available`은 남길 가수 등록 지원 여부 |
 | POST | `/api/v1/mix` | multipart `a`, `b`를 혼합해 WAV 응답 |
 | POST | `/api/v1/extract` | multipart `mixture`, `enrollment`를 접수하고 작업 ID를 202로 반환. 웹은 `mode=auto`를 사용하며 판별에 따라 `call` 또는 `harmony` 작업을 한 개 생성. 화음에서는 선택 입력 `keep_enrollment` 사용 |
 | GET | `/api/v1/jobs/{id}` | `queued`, `processing`, `completed`, `failed` 상태 및 처리 시간. 통화 녹음 결과가 완전히 음소거되면 `target_muted`가 참 |
+| DELETE | `/api/v1/jobs/{id}` | 완료·실패 작업과 모든 음성 결과 삭제. 이미 없는 작업이면 204, 처리 중이면 409 |
 | GET | `/api/v1/jobs/{id}/result` | 추정 음성 PCM WAV |
 | GET | `/api/v1/jobs/{id}/residual` | 노래 화음 모드에서 지정한 가수의 목소리를 뺀 PCM WAV |
 | GET | `/api/v1/jobs/{id}/original` | 16 kHz 모노 비교 재생용 혼합 PCM WAV |

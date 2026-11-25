@@ -283,6 +283,10 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="VoiceFocus", version="0.1.0", lifespan=lifespan)
 
+    @app.get("/healthz", include_in_schema=False)
+    async def health() -> Response:
+        return Response("ok\n", media_type="text/plain", headers=NO_STORE)
+
     @app.websocket("/ws/v1/stream")
     async def live(socket: WebSocket) -> None:
         await serve_live(socket, live_model, runtime.device, checkpoint_exists(live_model), live_slot)
@@ -402,6 +406,16 @@ def create_app() -> FastAPI:
     async def status(job_id: UUID, response: Response) -> dict:
         response.headers.update(NO_STORE)
         return find_job(job_id).public(job_id)
+
+    @app.delete("/api/v1/jobs/{job_id}", status_code=204)
+    async def delete_job(job_id: UUID) -> Response:
+        runtime.expire()
+        job = runtime.jobs.get(job_id)
+        if job is not None:
+            if job.status in ("queued", "processing"):
+                raise HTTPException(409, "처리가 끝난 뒤 결과를 삭제할 수 있습니다.", headers=NO_STORE)
+            del runtime.jobs[job_id]
+        return Response(status_code=204, headers=NO_STORE)
 
     @app.get("/api/v1/jobs/{job_id}/result")
     async def result(job_id: UUID) -> Response:

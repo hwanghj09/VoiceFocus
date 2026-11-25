@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Activity, ArrowDownToLine, AudioLines, AudioWaveform, CircleAlert, FlaskConical,
-  Layers, LoaderCircle, Phone, Radio, ScanFace, ShieldCheck, SlidersHorizontal, Waves,
+  Layers, LoaderCircle, Phone, Radio, ScanFace, ShieldCheck, SlidersHorizontal, Trash2, Waves,
 } from 'lucide-react'
-import { extract, getAudio, getExample, getJob, getModels, mix, sleep } from './api'
+import { deleteJob, extract, getAudio, getExample, getJob, getModels, mix, sleep } from './api'
 import type { Job, ModelStatus } from './api'
 import { AudioPreview } from './components/AudioPreview'
 import { Comparison } from './components/Comparison'
@@ -34,9 +34,10 @@ export function App() {
   const [mixture, setMixture] = useState<File | null>(null)
   const [enroll, setEnroll] = useState<File | null>(null)
   const [keepEnrollment, setKeepEnrollment] = useState<File | null>(null)
-  const [runState, setRunState] = useState<'idle' | 'example' | 'upload' | 'queued' | 'processing'>('idle')
+  const [runState, setRunState] = useState<'idle' | 'example' | 'upload' | 'queued' | 'processing' | 'deleting'>('idle')
   const [result, setResult] = useState<ExtractionResult | null>(null)
   const [extractError, setExtractError] = useState('')
+  const [deleteNotice, setDeleteNotice] = useState<{ message: string; error: boolean } | null>(null)
   const [exampleCue, setExampleCue] = useState<'A' | 'B'>('A')
   const [recordingBusy, setRecordingBusy] = useState(false)
   const [liveBusy, setLiveBusy] = useState(false)
@@ -75,6 +76,7 @@ export function App() {
       setKeepEnrollment(next)
     }
     setExtractError('')
+    setDeleteNotice(null)
     setResult(null)
   }
 
@@ -83,6 +85,7 @@ export function App() {
     extraction.current = controller
     setRunState('example')
     setExtractError('')
+    setDeleteNotice(null)
     try {
       const [input, sample] = await Promise.all([
         getExample('mixed.wav', controller.signal),
@@ -108,6 +111,7 @@ export function App() {
     setRunState('upload')
     setResult(null)
     setExtractError('')
+    setDeleteNotice(null)
     const deadline = Date.now() + 16 * 60_000
     const timer = window.setTimeout(() => controller.abort(), deadline - Date.now())
     try {
@@ -133,12 +137,38 @@ export function App() {
     }
   }
 
+  async function removeResult() {
+    if (!result || busy) return
+    const controller = new AbortController()
+    extraction.current = controller
+    setRunState('deleting')
+    setDeleteNotice(null)
+    const timeout = window.setTimeout(() => controller.abort('timeout'), 10_000)
+    try {
+      await deleteJob(result.job.id, controller.signal)
+      if (controller.signal.aborted) return
+      setResult(null)
+      setDeleteNotice({ message: '서버의 추출 결과를 삭제했습니다.', error: false })
+    } catch (error) {
+      if (!controller.signal.aborted || controller.signal.reason === 'timeout') {
+        setDeleteNotice({
+          message: controller.signal.reason === 'timeout' ? '삭제 응답이 늦어지고 있습니다. 다시 시도해 주세요.' : errorText(error),
+          error: true,
+        })
+      }
+    } finally {
+      window.clearTimeout(timeout)
+      if (!controller.signal.aborted || controller.signal.reason === 'timeout') setRunState('idle')
+    }
+  }
+
   const status = {
     idle: result ? '추출 완료' : '',
     example: '예제 음성을 불러오는 중',
     upload: 'WAV 파일을 올리는 중',
     queued: '처리 대기 중',
     processing: '등록한 목소리를 찾는 중',
+    deleting: '',
   }[runState]
 
   return (
@@ -239,9 +269,13 @@ export function App() {
                   <span>전체 처리 <b>{((result.job.processing_ms ?? 0) / 1000).toFixed(2)}초</b></span>
                   <span>모델 추론 <b>{((result.job.inference_ms ?? 0) / 1000).toFixed(2)}초</b></span>
                   <span>{result.job.model_version}</span>
+                  <button type="button" className="secondary" disabled={busy} onClick={() => void removeResult()}>
+                    <Trash2 size={15} aria-hidden="true" /> {runState === 'deleting' ? '삭제 중' : '추출 결과 삭제'}
+                  </button>
                 </div>
               )}
             </div>
+            {deleteNotice && <p className={deleteNotice.error ? 'error-notice' : 'job-status'} role={deleteNotice.error ? 'alert' : 'status'}>{deleteNotice.message}</p>}
             {result?.job.target_muted && <p className="error-notice" aria-live="polite">등록한 화자를 확인하지 못해 추정 음성을 음소거했습니다.</p>}
             {result ? (
               <Comparison key={result.job.id} original={result.original} output={result.output} residual={result.residual} uncertainMatch={result.job.uncertain_match} inputFile={mixture} duration={result.job.duration_seconds} />

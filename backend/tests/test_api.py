@@ -1,5 +1,7 @@
+import asyncio
 import io
 import time
+from threading import Event
 
 import numpy as np
 import pytest
@@ -108,6 +110,36 @@ def test_extraction_job_returns_both_audio_files_and_expires(monkeypatch):
         monotonic += main.RESULT_TTL + 1
         assert client.get(path).status_code == 404
         assert client.get(path + "/result").status_code == 404
+
+
+def test_delete_job_preserves_active_work_and_removes_completed_audio(monkeypatch):
+    monkeypatch.setattr(main.Runtime, "harmony_ready", True)
+    finish = Event()
+
+    async def fake_infer(_runtime, job, mixture, _enrollment, _keep):
+        assert await asyncio.to_thread(finish.wait, 5)
+        job.original = job.result = job.residual = main.playback_wav(mixture)
+        job.inference_ms = 1.0
+
+    monkeypatch.setattr(main, "infer", fake_infer)
+    with TestClient(main.create_app()) as client:
+        cue = upload(tone())
+        response = client.post("/api/v1/extract?mode=harmony", files={"mixture": cue, "enrollment": cue})
+        assert response.status_code == 202
+        path = response.headers["Location"]
+        try:
+            assert client.delete(path).status_code == 409
+        finally:
+            finish.set()
+        assert wait_for_job(client, path).json()["status"] == "completed"
+        assert client.get(path + "/residual").status_code == 200
+        for _ in range(2):
+            deletion = client.delete(path)
+            assert deletion.status_code == 204
+            assert deletion.content == b""
+            assert deletion.headers["Cache-Control"] == "no-store"
+        for suffix in ("", "/original", "/result", "/residual"):
+            assert client.get(path + suffix).status_code == 404
 
 
 def test_failed_inference_has_no_download(monkeypatch):

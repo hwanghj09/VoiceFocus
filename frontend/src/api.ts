@@ -71,6 +71,10 @@ export async function getJob(id: string, signal: AbortSignal): Promise<Job> {
   return (await request('/jobs/' + id, { signal })).json()
 }
 
+export async function deleteJob(id: string, signal: AbortSignal): Promise<void> {
+  await request('/jobs/' + id, { method: 'DELETE', signal })
+}
+
 export async function getAudio(id: string, type: 'original' | 'result' | 'residual', signal: AbortSignal): Promise<Blob> {
   return (await request('/jobs/' + id + '/' + type, { signal })).blob()
 }

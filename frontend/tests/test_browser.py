@@ -176,6 +176,13 @@ def test_upload_extract_seek_switch_and_download(page, server, samples, tmp_path
     page.get_by_role("button", name="비교 재생", exact=True).click()
     page.get_by_role("navigation").get_by_role("button", name="WAV 혼합").click()
     assert estimate.evaluate("(audio) => audio.paused")
+    page.get_by_role("navigation").get_by_role("button", name="화자 추출").click()
+    with page.expect_response(lambda response: response.request.method == "DELETE") as deleted:
+        page.get_by_role("button", name="추출 결과 삭제").click()
+    assert deleted.value.status == 204
+    expect(page.get_by_role("status")).to_have_text("서버의 추출 결과를 삭제했습니다.")
+    expect(page.locator(".compare-player audio")).to_have_count(0)
+    assert page.request.get(f"{deleted.value.url}/result").status == 404
 
 
 def test_microphone_recording_generates_wav_and_extracts(page, server, samples, tmp_path):

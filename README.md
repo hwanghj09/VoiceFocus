@@ -4,24 +4,22 @@ VoiceFocus는 혼합 WAV와 별도의 등록 WAV에서 원하는 사람의 목�
 
 ## 실행
 
-Python 3.11–3.12, Node.js 22.12 이상, Git과 curl이 필요합니다. 아래는 Linux CPU 환경 기준입니다. 체크포인트 묶음 다운로드에 약 1 GB, 선택한 체크포인트 설치에 약 270 MB가 필요합니다.
+Linux CPU 환경에서 Python 3.11–3.12, Node.js 22.12 이상, Git, curl을 사용합니다. 설치 스크립트는 파일 추출, 화음 분리, 웹 통화에 쓰는 모델을 준비하고 프런트엔드를 빌드합니다.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1 torchaudio==2.7.1
-bash scripts/setup_model.sh
-
-npm --prefix frontend ci
-npm --prefix frontend run build
-python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+bash scripts/setup_demo.sh
+bash scripts/serve_demo.sh
 ```
 
 브라우저에서 [http://127.0.0.1:8000](http://127.0.0.1:8000)을 열고 혼합 WAV(최대 30초)와 등록 WAV(1–20초)를 올린 후 **음성 추출**을 누르세요. 등록 음성은 **등록 음성 녹음**으로 직접 만들 수도 있습니다. 대화나 통화에는 당사자만 말한 녹음, 화음에는 당사자만 부른 녹음을 등록하세요. 파일당 최대 16 MiB를 받습니다. 자동 판별을 추가하기 전 설치에서는 `bash scripts/setup_routing.sh`로 판별 모델을 추가할 수 있습니다.
 
 대화와 통화 녹음에서는 등록한 사람을 확인하기 어려운 구간을 음소거합니다. 같은 재생 위치에서 **원본 혼합 음성**과 **추정 음성**을 전환해 들어 보세요. [통화 평가](docs/EVALUATION.md#통화-녹음에서-등록-화자-추출)
 
+**추출 결과 삭제**를 누르면 브라우저 비교 화면이 비워지고 서버의 결과와 비교용 원본이 즉시 삭제됩니다. [배포와 개인정보](docs/DEPLOYMENT.md)
+
 ### 실시간 마이크 실험
+
+기존 설치에 실시간 모델을 추가하려면 아래 명령을 실행하세요.
 
 ```bash
 bash scripts/setup_model.sh spk_emb_causal_100
@@ -35,19 +33,17 @@ localhost 또는 HTTPS에서 등록 WAV를 올리고 **실시간 마이크 실�
 
 위의 실시간 모델을 설치했다면 **상대 등록 음성**에 상대만 말한 WAV를 넣고 **VoiceFocus 켜기**를 누르세요. 처리가 시작되면 상대의 원본 재생이 음소거되고, 서버에서 검증된 음성이 수 초 늦게 재생됩니다. 두 사람 중 한 명씩 처리 음성을 시험할 수 있습니다. **VoiceFocus 끄기**로 원본 재생을 다시 켤 수 있습니다. 화면에서 나가거나 통화를 종료하면 양쪽 연결과 마이크가 해제됩니다. [시그널링과 오디오 경로](docs/ARCHITECTURE.md#웹-통화-실험)
 
-### 화음 분리 모델 설치
+### 화음 분리
 
-두 사람이 함께 부르는 1–30초의 무반주 화음을 처리하려면 아래 스크립트로 화음 모델도 설치하세요. 혼합 녹음과 등록 녹음 모두에 노래가 감지되면 자동으로 화음 분리를 사용합니다. **목표 목소리만**과 **목표 제거 후**를 같은 위치에서 재생하거나 WAV로 내려받을 수 있습니다. **제거 대상 바꾸기**로 두 결과의 역할을 전환할 수 있습니다.
+두 사람이 함께 부르는 1–30초의 무반주 화음을 분리할 수 있습니다. 혼합 녹음과 등록 녹음 모두에 노래가 감지되면 자동으로 화음 분리를 사용합니다. **목표 목소리만**과 **목표 제거 후**를 같은 위치에서 재생하거나 WAV로 내려받을 수 있습니다. **제거 대상 바꾸기**로 두 결과의 역할을 전환할 수 있습니다.
 
 두 사람이 같은 음을 부르거나 한쪽 목소리가 더 작으면 **남길 가수도 등록**을 열어 그 사람만 부르는 1–20초 WAV도 올려 보세요. 화음이 감지되면 두 등록 녹음을 각 분리 결과와 대조합니다. [정확도 측정](docs/EVALUATION.md#비슷한-음높이와-음량-차이)
 
-```bash
-bash scripts/setup_harmony.sh
-```
+기존 설치에 화음 모델을 추가하려면 `bash scripts/setup_harmony.sh`를 실행하세요.
 
 일부 Linux 환경에서는 Asteroid 의존성 설치에 C 컴파일러가 사용됩니다. 이 환경에서는 `CC=gcc bash scripts/setup_harmony.sh`로 설치할 수 있습니다. CPU에서 검증했으며 모든 비교·출력 파일은 16 kHz 모노입니다. 스크립트는 UNMIXX 소스와 체크포인트를 고정 버전에서 받아오고, MIT로 공개된 Sony CSL 노래 음색 인코더와 함께 사용합니다. UNMIXX 저장소에는 별도 라이선스가 표시되어 있지 않습니다. [UNMIXX](https://github.com/jihoojung0106/unmixx/tree/8e750521b5942f4717656cac86a23cf0bd90dea5) · [노래 음색 인코더](https://huggingface.co/BernardoTorres/singer-identity)
 
-입력 폼에 **예제 불러오기**를 표시하려면 아래 명령으로 예제를 만드세요. 합성 예제는 eSpeak NG가 필요합니다. LibriSpeech 명령은 OpenSLR의 CC BY 4.0 테스트 발췌를 사용하며, 아래 환경 변수로 해당 예제를 서버에 표시할 수 있습니다.
+입력 폼에 **예제 불러오기**를 표시하려면 아래 명령으로 예제를 만드세요. 합성 예제는 eSpeak NG가 필요합니다. LibriSpeech 명령은 OpenSLR의 CC BY 4.0 테스트 발췌를 사용하며, 아래 환경 변수로 해당 예제를 서버에 표시할 수 있습니다. 설치 스크립트로 만든 가상 환경은 `source .venv/bin/activate`로 활성화할 수 있습니다.
 
 ```bash
 python -m scripts.fetch_samples synthetic artifacts/synthetic-source
@@ -55,7 +51,7 @@ python -m experiments.01_audio_mix.mix artifacts/synthetic-source artifacts/synt
 
 python -m scripts.fetch_samples librispeech artifacts/librispeech-source
 python -m experiments.01_audio_mix.mix artifacts/librispeech-source artifacts/librispeech --extended
-VOICEFOCUS_EXAMPLE_DIR=artifacts/librispeech/e02-full python -m uvicorn backend.app.main:app
+VOICEFOCUS_EXAMPLE_DIR=artifacts/librispeech/e02-full bash scripts/serve_demo.sh
 ```
 
 개발 서버를 사용할 때는 8000번 포트에서 API를 띄운 상태로 `npm --prefix frontend run dev`를 실행하세요. API 경로는 [시스템 구조](docs/ARCHITECTURE.md)에 정리되어 있습니다.
