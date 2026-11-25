@@ -59,11 +59,14 @@ def main() -> None:
     parser.add_argument("--mixture", required=True, type=Path)
     parser.add_argument("--enroll", required=True, type=Path)
     parser.add_argument("--keep-enroll", type=Path, help="Optional recording of the singer to keep in harmony mode.")
+    parser.add_argument("--verify-target", action="store_true", help="Verify target speech before releasing the call result.")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--metrics", required=True, type=Path)
     args = parser.parse_args()
     if args.keep_enroll is not None and args.residual is None:
         parser.error("--keep-enroll requires harmony separation.")
+    if args.verify_target and args.model is None:
+        parser.error("--verify-target requires a speech model.")
 
     mixture, mix_rate = sf.read(args.mixture, dtype="float32")
     enrollment, enroll_rate = sf.read(args.enroll, dtype="float32")
@@ -90,6 +93,11 @@ def main() -> None:
         extractor = Extractor(args.model, args.device)
         start = perf_counter()
         result = extractor.extract(mixture, enrollment)
+        if args.verify_target:
+            from backend.app.models.call import verify_speech
+
+            result = verify_speech(mixture, result, enrollment, extractor.embedding)
+            metadata["target_muted"] = not bool(np.any(result))
         metadata["inference_ms"] = (perf_counter() - start) * 1000
     write_analysis_wav(args.output, result)
     args.metrics.write_text(json.dumps(metadata), encoding="utf-8")

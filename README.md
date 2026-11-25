@@ -21,6 +21,10 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 결과 화면의 공통 재생 위치에서 원하는 구간을 찾고 **원본 혼합 음성**과 **추정 음성**을 전환해 들어 보세요. 두 파형과 스펙트로그램은 같은 재생 위치를 표시합니다.
 
+### 통화 상대 음성 추출
+
+**분리 대상 → 통화 녹음**을 선택하고 주변 대화나 소음이 들어간 WAV(1–30초)와 듣고 싶은 사람만 말하는 별도 WAV(1–20초)를 올리세요. 분리한 음성과 나머지 음성을 등록 샘플과 비교해 더 잘 맞는 후보를 확인합니다. 등록 화자를 확인하기 어려운 구간은 음소거합니다. 파일 데모에서 이 동작을 확인할 수 있으며, 실시간 자체 웹 통화는 후속 단계입니다. [통화 평가](docs/EVALUATION.md#통화-녹음에서-등록-화자-추출)
+
 ### 노래 화음 분리
 
 별도로 화음 모델을 설치한 뒤 **분리 대상 → 노래 화음**을 선택하세요. 두 사람이 함께 부르는 1–30초의 무반주 WAV와 빼고 싶은 사람만 부르는 1–20초의 등록 WAV를 올리고 **화음 분리**를 누르세요. 결과에서 **목표 목소리만**과 **목표 제거 후**를 원본과 같은 위치에서 전환하거나 WAV로 내려받을 수 있습니다. 선택이 다르면 **제거 대상 바꾸기**로 두 결과의 역할을 바꿀 수 있습니다.
@@ -62,6 +66,10 @@ bash scripts/setup_model.sh spk_emb_causal_100
 python -m experiments.04_streaming.benchmark artifacts/librispeech/e02-full artifacts/streaming.json
 python -m experiments.04_streaming.benchmark_stateful \
   artifacts/librispeech/e02-full artifacts/streaming-stateful.json
+
+python -m scripts.fetch_samples librispeech-calls artifacts/calls-source
+python -m experiments.06_calls.evaluate artifacts/calls-source artifacts/calls \
+  --pair a b --pair 1320 3575 --pair 8455 b
 ```
 
 `artifacts/eval-*/e02-full/`에 혼합 음성, A/B 등록별 추정 음성, 두 참조 음성이 저장됩니다. 오프라인 품질과 CPU 지연 측정은 [평가 결과](docs/EVALUATION.md)에서 확인할 수 있습니다. 청크 사이에 모델 상태를 유지해 지연을 줄였지만 기준을 충족하는 실시간 추출과 WebRTC는 후속 단계입니다.
@@ -80,6 +88,13 @@ npm --prefix frontend run build
 python -m pip install -r backend/requirements-browser.txt
 python -m playwright install chromium
 python -m pytest -q frontend/tests
+```
+
+통화 모드의 무음과 겹친 발화에서의 화자 선택을 검증하려면 통화 평가를 실행한 후 아래 환경 변수를 지정하세요.
+
+```bash
+VOICEFOCUS_E2E_CALL_DIR=artifacts/calls/8455-b-absent \
+VOICEFOCUS_E2E_CALL_OVERLAP_DIR=artifacts/calls/a-b-overlap python -m pytest -q frontend/tests
 ```
 
 노래 화음 브라우저 테스트는 [합창 데이터의 개별 WAV](https://zenodo.org/records/2649950)와 위에서 설치한 화음 모델을 사용합니다.

@@ -108,8 +108,9 @@ def page(browser, server):
         context.close()
 
 
-def submit_and_wait(page, harmony=False):
-    path = "/api/v1/extract?mode=harmony" if harmony else "/api/v1/extract"
+def submit_and_wait(page, mode="speech"):
+    path = "/api/v1/extract" if mode == "speech" else f"/api/v1/extract?mode={mode}"
+    harmony = mode == "harmony"
     with page.expect_response(lambda response: response.url.endswith(path)) as accepted:
         page.get_by_role("button", name="화음 분리" if harmony else "음성 추출", exact=True).click()
     response = accepted.value
@@ -299,7 +300,7 @@ def test_harmony_removes_enrolled_tenor_and_can_swap_outputs(page, server, tmp_p
     expect(page.get_by_text("모델 사용 가능")).to_be_visible()
     page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
     page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll_b.wav")
-    job = submit_and_wait(page, harmony=True)
+    job = submit_and_wait(page, mode="harmony")
     assert job["mode"] == "harmony"
 
     removed = page.get_by_role("button", name="목표 제거 후", exact=True)
@@ -349,7 +350,7 @@ def test_harmony_two_references_disambiguate_singers_in_unison(page, server, tmp
     expect(page.get_by_text("enroll-b.wav", exact=True)).to_be_visible()
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth") == 390
-    assert submit_and_wait(page, harmony=True)["mode"] == "harmony"
+    assert submit_and_wait(page, mode="harmony")["mode"] == "harmony"
 
     with page.expect_download() as download:
         page.get_by_role("link", name="목표 제거 후 WAV 다운로드").click()
@@ -369,3 +370,45 @@ def test_harmony_two_references_disambiguate_singers_in_unison(page, server, tmp
     page.get_by_label("분리 대상").select_option("harmony")
     page.get_by_text("남길 가수도 등록").click()
     expect(page.get_by_role("button", name="남길 가수 음성 파일 선택")).to_be_visible()
+
+
+def test_call_with_the_enrolled_speaker_absent_downloads_silence(page, server, tmp_path):
+    case_dir = os.environ.get("VOICEFOCUS_E2E_CALL_DIR")
+    if not case_dir:
+        pytest.skip("Set VOICEFOCUS_E2E_CALL_DIR to the target-absent call fixture.")
+    case = Path(case_dir)
+    page.goto(server)
+    page.get_by_label("분리 대상").select_option("call")
+    expect(page.get_by_role("heading", name="통화 상대 음성 추출")).to_be_visible()
+    page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
+    page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll.wav")
+    job = submit_and_wait(page, mode="call")
+    assert job["mode"] == "call" and job["target_muted"] is True
+    expect(page.get_by_text("등록한 화자를 확인하지 못해 추정 음성을 음소거했습니다.")).to_be_visible()
+    with page.expect_download() as download:
+        page.get_by_role("link", name="추정 음성 WAV 다운로드").click()
+    result = tmp_path / "muted.wav"
+    download.value.save_as(result)
+    audio, rate = sf.read(result)
+    assert rate == 16000 and len(audio) / rate == job["duration_seconds"]
+    assert not np.any(audio)
+
+
+def test_call_recovers_enrolled_speaker_in_narrowband_overlap(page, server):
+    case_dir = os.environ.get("VOICEFOCUS_E2E_CALL_OVERLAP_DIR")
+    if not case_dir:
+        pytest.skip("Set VOICEFOCUS_E2E_CALL_OVERLAP_DIR to the narrowband overlap fixture.")
+    case = Path(case_dir)
+    page.goto(server)
+    page.get_by_label("분리 대상").select_option("call")
+    page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
+    page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll_b.wav")
+    job = submit_and_wait(page, mode="call")
+    assert job["target_muted"] is False
+    response = page.request.get(f"{server}/api/v1/jobs/{job['id']}/result")
+    assert response.status == 200
+    output, rate = sf.read(io.BytesIO(response.body()), dtype="float32")
+    reference = sf.read(case / "reference-b.wav", dtype="float32")[0]
+    raw = sf.read(case / "raw-b.wav", dtype="float32")[0]
+    assert rate == 16000 and output.shape == reference.shape
+    assert si_sdr(reference, output) - si_sdr(reference, raw) > 15

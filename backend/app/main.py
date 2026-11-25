@@ -50,7 +50,7 @@ EXTRACTION_TIMEOUT = 120
 HARMONY_TIMEOUT = 240
 NO_STORE = {"Cache-Control": "no-store"}
 EXAMPLE_FILES = {"mixed.wav", "enroll.wav", "enroll_b.wav"}
-Mode = Literal["speech", "harmony"]
+Mode = Literal["speech", "harmony", "call"]
 
 
 @dataclass
@@ -67,6 +67,7 @@ class Job:
     result: bytes | None = None
     residual: bytes | None = None
     uncertain_match: bool = False
+    target_muted: bool | None = None
     expires_at: float = float("inf")
 
     def public(self, job_id: UUID) -> dict:
@@ -81,6 +82,7 @@ class Job:
             "model_id": self.model_id,
             "model_version": self.model_version,
             "uncertain_match": self.uncertain_match,
+            "target_muted": self.target_muted,
             "sample_rate": SAMPLE_RATE,
         }
 
@@ -130,6 +132,8 @@ async def infer(
         residual = work_dir / "residual.wav"
         is_harmony = job.mode == "harmony"
         mode_args = ["--residual", str(residual)] if is_harmony else ["--model", str(runtime.model_dir)]
+        if job.mode == "call":
+            mode_args.append("--verify-target")
         if keep_enrollment is not None:
             keep_enroll = work_dir / "keep-enroll.wav"
             write_analysis_wav(keep_enroll, keep_enrollment)
@@ -169,6 +173,8 @@ async def infer(
         job.original, job.result = (playback_wav(signal) for signal in signals[:2])
         job.inference_ms = round(metadata["inference_ms"], 1)
         job.uncertain_match = bool(metadata.get("uncertain_match"))
+        if job.mode == "call":
+            job.target_muted = bool(metadata["target_muted"])
 
 
 async def run_job(
@@ -314,7 +320,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/extract", status_code=202)
     async def extract(request: Request, response: Response, mode: Mode = "speech") -> dict:
-        if mode == "speech" and not runtime.model_ready:
+        if mode != "harmony" and not runtime.model_ready:
             raise HTTPException(503, "REAL-TSE 모델을 설치한 뒤 다시 시도해 주세요.")
         if mode == "harmony" and not runtime.harmony_ready:
             raise HTTPException(503, "노래 화음 모델을 설치한 뒤 다시 시도해 주세요.")
@@ -322,7 +328,7 @@ def create_app() -> FastAPI:
             raise HTTPException(503, "처리 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
         async with uploads:
             limits = {
-                "mixture": (1.0 if mode == "harmony" else 0.1, MAX_MIX_SECONDS),
+                "mixture": (0.1 if mode == "speech" else 1.0, MAX_MIX_SECONDS),
                 "enrollment": (1.0, MAX_ENROLL_SECONDS),
             }
             optional = "keep_enrollment" if mode == "harmony" else None
@@ -342,6 +348,8 @@ def create_app() -> FastAPI:
             if len(runtime.jobs) >= MAX_JOBS:
                 raise HTTPException(503, "임시 결과 저장소가 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
             model = (harmony.MODEL_ID, harmony.MODEL_VERSION) if mode == "harmony" else (MODEL_ID, runtime.model_version)
+            if mode == "call":
+                model = (MODEL_ID, f"{runtime.model_version}-verified")
             job_id = uuid4()
             job = Job(mode, *model, duration_seconds=len(mixture) / SAMPLE_RATE)
             runtime.jobs[job_id] = job

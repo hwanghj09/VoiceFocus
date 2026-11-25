@@ -12,8 +12,14 @@ from backend.app.audio.wav import read_audio, write_analysis_wav
 
 DATASET = "openslr/librispeech_asr"
 SPEAKERS = {
-    "a": (0, "6930-75918"),
-    "b": (200, "260-123286"),
+    "a": (0, "6930-75918", 0),
+    "b": (200, "260-123286", 0),
+}
+CALL_SPEAKERS = {
+    **SPEAKERS,
+    "1320": (100, "1320-122617", 22),
+    "3575": (400, "3575-170457", 31),
+    "8455": (1000, "8455-210777", 28),
 }
 TEXTS = (
     "The window was open when the first bus reached the station.",
@@ -25,8 +31,8 @@ TEXTS = (
 )
 
 
-def fetch_librispeech(directory: Path) -> None:
-    for speaker, (offset, chapter) in SPEAKERS.items():
+def fetch_librispeech(directory: Path, speakers=SPEAKERS) -> None:
+    for speaker, (offset, chapter, first) in speakers.items():
         query = urlencode({
             "dataset": DATASET, "config": "clean", "split": "test",
             "offset": offset, "length": 6,
@@ -35,7 +41,7 @@ def fetch_librispeech(directory: Path) -> None:
             rows = json.load(response)["rows"]
         for index, entry in enumerate(rows):
             row = entry["row"]
-            expected = f"{chapter}-{index:04d}"
+            expected = f"{chapter}-{first + index:04d}"
             if row["id"] != expected:
                 raise ValueError(f"Expected LibriSpeech utterance {expected}.")
             with urlopen(row["audio"][0]["src"], timeout=60) as response:
@@ -60,14 +66,14 @@ def synthesize(directory: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", choices=("librispeech", "synthetic"))
+    parser.add_argument("source", choices=("librispeech", "librispeech-calls", "synthetic"))
     parser.add_argument("directory", type=Path)
     args = parser.parse_args()
     args.directory.mkdir(parents=True, exist_ok=True)
-    if args.source == "librispeech":
-        fetch_librispeech(args.directory)
-    else:
+    if args.source == "synthetic":
         synthesize(args.directory)
+    else:
+        fetch_librispeech(args.directory, CALL_SPEAKERS if args.source == "librispeech-calls" else SPEAKERS)
 
 
 if __name__ == "__main__":

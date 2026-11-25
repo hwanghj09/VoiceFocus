@@ -12,7 +12,7 @@ export interface ModelStatus {
   example_available: boolean
 }
 
-export type Mode = 'speech' | 'harmony'
+export type Mode = 'speech' | 'harmony' | 'call'
 
 export interface Job {
   id: string
@@ -24,6 +24,7 @@ export interface Job {
   mode: Mode
   model_version: string
   uncertain_match: boolean
+  target_muted: boolean | null
 }
 
 const BASE = '/api/v1'
@@ -53,7 +54,7 @@ export async function extract(
   body.append('mixture', mixture)
   body.append('enrollment', enrollment)
   if (mode === 'harmony' && keepEnrollment) body.append('keep_enrollment', keepEnrollment)
-  const path = mode === 'harmony' ? '/extract?mode=harmony' : '/extract'
+  const path = mode === 'speech' ? '/extract' : `/extract?mode=${mode}`
   return (await request(path, { method: 'POST', body, signal })).json()
 }
 

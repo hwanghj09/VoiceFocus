@@ -40,6 +40,7 @@ export function App() {
   const [recordingBusy, setRecordingBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
   const singing = mode === 'harmony'
+  const call = mode === 'call'
   const model = info?.models.find((entry) => entry.id === (singing ? 'harmony-vocal-split' : 'real-tse-bsrnn-spk-emb'))
   const busy = runState !== 'idle'
   const inputsLocked = busy || recordingBusy
@@ -155,9 +156,9 @@ export function App() {
         <section className="hero" aria-labelledby="intro-title">
           <div className="hero-content">
             <div className="hero-kicker"><span /> 파일 기반 데모</div>
-            <h1 id="intro-title">{page === 'extract' ? (singing ? '노래 화음 분리' : '목표 화자 추출') : '두 WAV 혼합'}</h1>
+            <h1 id="intro-title">{page === 'extract' ? (singing ? '노래 화음 분리' : call ? '통화 상대 음성 추출' : '목표 화자 추출') : '두 WAV 혼합'}</h1>
             <p>{page === 'extract'
-              ? (singing ? '두 사람이 부른 화음에서 등록한 가수의 목소리를 분리합니다.' : '혼합 음성에서 등록한 사람의 목소리를 추정해 분리합니다.')
+              ? (singing ? '두 사람이 부른 화음에서 등록한 가수의 목소리를 분리합니다.' : call ? '통화 녹음에서 등록한 화자를 찾아, 확인되지 않는 구간을 음소거합니다.' : '혼합 음성에서 등록한 사람의 목소리를 추정해 분리합니다.')
               : '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'}</p>
           </div>
           <div className="hero-signal" aria-hidden="true">{BARS.map((height, index) => (
@@ -187,18 +188,19 @@ export function App() {
             <label className="mode-control">
               <span>분리 대상</span>
               <select value={mode} disabled={inputsLocked} onChange={(event) => {
-                const nextMode = event.currentTarget.value === 'harmony' ? 'harmony' : 'speech'
+                const nextMode = event.currentTarget.value as Mode
                 setMode(nextMode)
-                if (nextMode === 'speech') setKeepEnrollment(null)
+                if (nextMode !== 'harmony') setKeepEnrollment(null)
                 setResult(null)
                 setExtractError('')
               }}>
                 <option value="speech">일반 음성</option>
+                <option value="call">통화 녹음</option>
                 <option value="harmony">노래 화음</option>
               </select>
             </label>
             <div className="upload-grid">
-              <Upload label="혼합 음성" hint={singing ? '두 사람이 부르는 무반주 화음 WAV · 1–30초' : '여러 사람이 포함된 WAV · 최대 30초'} icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
+              <Upload label="혼합 음성" hint={singing ? '두 사람이 부르는 무반주 화음 WAV · 1–30초' : call ? '통화 상황을 녹음한 WAV · 1–30초' : '여러 사람이 포함된 WAV · 최대 30초'} icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
               <Upload label="등록 음성" hint={singing ? '빼고 싶은 사람만 부르는 별도 WAV · 1–20초' : '목표 화자 한 사람의 별도 녹음 · 1–20초'} icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
                 <EnrollmentRecorder active={page === 'extract'} disabled={busy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
@@ -242,6 +244,7 @@ export function App() {
                 </div>
               )}
             </div>
+            {result?.job.target_muted && <p className="error-notice" aria-live="polite">등록한 화자를 확인하지 못해 추정 음성을 음소거했습니다.</p>}
             {result ? (
               <Comparison key={result.job.id} original={result.original} output={result.output} residual={result.residual} uncertainMatch={result.job.uncertain_match} inputFile={mixture} duration={result.job.duration_seconds} />
             ) : (

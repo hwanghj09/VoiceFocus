@@ -17,14 +17,16 @@ flowchart LR
 | --- | --- | --- |
 | GET | `/api/v1/models` | 모델 ID, 버전, 샘플링 주파수, 체크포인트 및 예제 준비 상태. 화음 모델의 `keep_enrollment_available`은 남길 가수 등록 지원 여부 |
 | POST | `/api/v1/mix` | multipart `a`, `b`를 혼합해 WAV 응답 |
-| POST | `/api/v1/extract` | multipart `mixture`, `enrollment`를 접수하고 작업 ID를 202로 반환. `mode=harmony`에서 남길 가수의 `keep_enrollment`도 선택적으로 접수 |
-| GET | `/api/v1/jobs/{id}` | `queued`, `processing`, `completed`, `failed` 상태 및 처리 시간 |
+| POST | `/api/v1/extract` | multipart `mixture`, `enrollment`를 접수하고 작업 ID를 202로 반환. `mode=call`은 통화 녹음의 등록 화자를 검증하며, `mode=harmony`는 남길 가수의 `keep_enrollment`도 선택적으로 접수 |
+| GET | `/api/v1/jobs/{id}` | `queued`, `processing`, `completed`, `failed` 상태 및 처리 시간. 통화 녹음 결과가 완전히 음소거되면 `target_muted`가 참 |
 | GET | `/api/v1/jobs/{id}/result` | 추정 음성 PCM WAV |
 | GET | `/api/v1/jobs/{id}/residual` | 노래 화음 모드에서 지정한 가수의 목소리를 뺀 PCM WAV |
 | GET | `/api/v1/jobs/{id}/original` | 16 kHz 모노 비교 재생용 혼합 PCM WAV |
 | GET | `/api/v1/examples/{name}` | 로컬에서 생성한 `mixed.wav`, `enroll.wav`, `enroll_b.wav` |
 
 `processing_ms`는 대기열 통과 이후의 시간으로 모델 로딩과 인코딩을 포함한다. `inference_ms`는 모델이 파형을 처리하는 데 걸린 시간이다. 원본과 결과는 같은 길이의 16 kHz 모노 WAV다. 비교 재생기는 선택한 음성이 바뀌어도 위치를 유지하며, 원본 다운로드 버튼은 선택한 파일을 그대로 제공한다. 브라우저 마이크 녹음은 1–20초 등록 WAV로 변환하며, 추출을 요청할 때 업로드한다.
+
+통화 녹음 모드는 REAL-TSE 출력과 그 출력을 혼합 신호의 크기에 맞춰 뺀 잔차를 WeSpeaker 임베딩으로 비교한다. 제거 성분의 에너지가 혼합 에너지의 25% 이상일 때 잔차를 검증한다. 등록 음성은 원래 대역과 300–3400 Hz 전화 대역으로 각각 비교한다. 확인된 후보는 1.5초 문맥으로 250 ms마다 다시 검증하며, 거부된 블록은 0으로 출력한다. 이 경로는 녹음 파일 전체를 사용한다.
 
 노래 화음 모드에서는 UNMIXX가 두 후보를 분리하고 겹치는 구간의 파형 상관으로 순서를 맞춘다. 겹치는 구간이 조용하거나 파형 상관이 비슷하면 그 앞뒤의 음색을 비교해 같은 가수의 트랙을 잇는다. 후보 합이 원본 파형과 일치하도록 오차를 두 후보에 배분한다. Sony CSL 노래 음색 임베딩과 중앙 음높이를 등록 음성과 비교해 목표와 나머지를 선택한다. `keep_enrollment`를 함께 보내면 contrastive 및 VICReg 인코더를 사용하고, 두 등록 음성을 서로 다른 후보에 배정하는 두 조합의 점수를 비교한다. 두 점수가 가깝거나 구간 연결이 모호하면 `uncertain_match`로 표시한다. 사용자는 두 트랙을 듣고 제거 대상을 바꿀 수 있다.
 

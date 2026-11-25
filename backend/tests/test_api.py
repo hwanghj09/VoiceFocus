@@ -134,6 +134,29 @@ def test_model_unavailable_is_reported(monkeypatch):
     with TestClient(main.create_app()) as client:
         assert not client.get("/api/v1/models").json()["models"][0]["available"]
         assert client.post("/api/v1/extract").status_code == 503
+        assert client.post("/api/v1/extract?mode=call").status_code == 503
+
+
+def test_call_jobs_keep_muted_waveform_downloadable(monkeypatch):
+    monkeypatch.setattr(main.Runtime, "model_ready", True)
+
+    async def fake_infer(_runtime, job, mixture, _enrollment, keep_enrollment):
+        assert job.mode == "call" and keep_enrollment is None
+        job.target_muted = True
+        job.result = main.playback_wav(np.zeros_like(mixture))
+
+    monkeypatch.setattr(main, "infer", fake_infer)
+    route = "/api/v1/extract?mode=call"
+    with TestClient(main.create_app()) as client:
+        cue = upload(tone())
+        assert client.post(route, files={"mixture": upload(tone(seconds=0.5)), "enrollment": cue}).status_code == 422
+        accepted = client.post(route, files={"mixture": cue, "enrollment": cue})
+        assert accepted.status_code == 202
+        path = accepted.headers["Location"]
+        result = wait_for_job(client, path).json()
+        assert result["status"] == "completed" and result["target_muted"] is True
+        audio, rate = sf.read(io.BytesIO(client.get(path + "/result").content))
+        assert rate == 16_000 and not np.any(audio)
 
 
 def test_rejects_incorrect_multipart_media_type():
