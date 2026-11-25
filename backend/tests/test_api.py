@@ -129,3 +129,54 @@ def test_model_unavailable_is_reported(monkeypatch):
     with TestClient(main.create_app()) as client:
         assert not client.get("/api/v1/models").json()["models"][0]["available"]
         assert client.post("/api/v1/extract").status_code == 503
+
+
+def test_rejects_incorrect_multipart_media_type():
+    with TestClient(main.create_app()) as client:
+        response = client.post("/api/v1/mix", headers={"Content-Type": "multipart/form-data-extra"})
+        assert response.status_code == 415
+
+
+def test_example_validates_audio_and_does_not_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOICEFOCUS_EXAMPLE_DIR", str(tmp_path))
+    (tmp_path / "mixed.wav").write_bytes(upload(tone(seconds=0.5))[1])
+    (tmp_path / "enroll.wav").write_bytes(upload(tone(seconds=0.5))[1])
+    (tmp_path / "enroll_b.wav").write_bytes(b"unreadable")
+    with TestClient(main.create_app()) as client:
+        audio = client.get("/api/v1/examples/mixed.wav")
+        assert audio.status_code == 200
+        assert audio.headers["Cache-Control"] == "no-store"
+        assert client.get("/api/v1/examples/enroll.wav").status_code == 422
+        assert client.get("/api/v1/examples/enroll_b.wav").status_code == 422
+        assert client.get("/api/v1/examples/unknown.wav").status_code == 404
+
+
+def test_queue_recovers_after_a_busy_response(monkeypatch):
+    import asyncio
+    from threading import Event
+
+    release = Event()
+    monkeypatch.setattr(main.Runtime, "model_ready", True)
+    monkeypatch.setattr(main, "MAX_ACTIVE_JOBS", 1)
+
+    async def fake_infer(_runtime, mixture, _enrollment):
+        await asyncio.to_thread(release.wait, 5)
+        audio = main.playback_wav(mixture)
+        return audio, audio, 1.0
+
+    monkeypatch.setattr(main, "infer", fake_infer)
+    files = {"mixture": upload(tone()), "enrollment": upload(tone())}
+    with TestClient(main.create_app()) as client:
+        first = client.post("/api/v1/extract", files=files)
+        assert first.status_code == 202
+        path = first.headers["Location"]
+        try:
+            assert client.get(path + "/result").status_code == 409
+            assert client.post("/api/v1/extract", files=files).status_code == 503
+        finally:
+            release.set()
+        assert wait_for_job(client, path).json()["status"] == "completed"
+        second = client.post("/api/v1/extract", files=files)
+        assert second.status_code == 202
+        assert second.json()["id"] != first.json()["id"]
+        assert wait_for_job(client, second.headers["Location"]).json()["status"] == "completed"

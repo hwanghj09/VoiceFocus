@@ -1,0 +1,68 @@
+{
+  "checkpoint": "spk_emb_causal_100",
+  "case": "e02-full",
+  "device": "cpu",
+  "torch_threads": 2,
+  "chunks": [
+    {
+      "cue": "A",
+      "chunk_ms": 32,
+      "samples": 80400,
+      "enrollment_ms": 43.66,
+      "rtf": 1.135,
+      "p95_pipeline_ms": 711.25,
+      "si_sdri_db": -24.74,
+      "offline_peak_error": 1.2e-07
+    },
+    {
+      "cue": "A",
+      "chunk_ms": 64,
+      "samples": 80400,
+      "enrollment_ms": 34.07,
+      "rtf": 0.746,
+      "p95_pipeline_ms": 158.07,
+      "si_sdri_db": -24.74,
+      "offline_peak_error": 1.5e-07
+    },
+    {
+      "cue": "A",
+      "chunk_ms": 128,
+      "samples": 80400,
+      "enrollment_ms": 36.3,
+      "rtf": 0.533,
+      "p95_pipeline_ms": 228.88,
+      "si_sdri_db": -24.74,
+      "offline_peak_error": 1.5e-07
+    },
+    {
+      "cue": "B",
+      "chunk_ms": 32,
+      "samples": 80400,
+      "enrollment_ms": 55.78,
+      "rtf": 1.723,
+      "p95_pipeline_ms": 3623.18,
+      "si_sdri_db": 13.45,
+      "offline_peak_error": 1.5e-07
+    },
+    {
+      "cue": "B",
+      "chunk_ms": 64,
+      "samples": 80400,
+      "enrollment_ms": 68.02,
+      "rtf": 0.757,
+      "p95_pipeline_ms": 174.9,
+      "si_sdri_db": 13.45,
+      "offline_peak_error": 1.5e-07
+    },
+    {
+      "cue": "B",
+      "chunk_ms": 128,
+      "samples": 80400,
+      "enrollment_ms": 56.3,
+      "rtf": 0.558,
+      "p95_pipeline_ms": 243.29,
+      "si_sdri_db": 13.45,
+      "offline_peak_error": 1.5e-07
+    }
+  ]
+}

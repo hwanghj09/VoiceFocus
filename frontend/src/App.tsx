@@ -6,6 +6,8 @@ import {
 import { extract, getAudio, getExample, getJob, getModels, mix, sleep } from './api'
 import type { Job, ModelStatus } from './api'
 import { AudioPreview } from './components/AudioPreview'
+import { Comparison } from './components/Comparison'
+import { EnrollmentRecorder } from './components/EnrollmentRecorder'
 import { Upload } from './components/Upload'
 
 const BARS = [16, 21, 37, 24, 57, 86, 54, 106, 137, 76, 45, 63, 103, 67, 34, 58, 90, 145, 99, 66, 45, 76, 114, 142, 72, 44, 64, 110, 82, 40, 25, 42, 96, 67, 31, 49, 25, 14]
@@ -32,9 +34,11 @@ export function App() {
   const [result, setResult] = useState<ExtractionResult | null>(null)
   const [extractError, setExtractError] = useState('')
   const [exampleCue, setExampleCue] = useState<'A' | 'B'>('A')
+  const [recordingBusy, setRecordingBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
   const model = info?.models[0]
   const busy = runState !== 'idle'
+  const inputsLocked = busy || recordingBusy
 
   useEffect(() => {
     const controller = new AbortController()
@@ -84,7 +88,7 @@ export function App() {
   }
 
   async function submit() {
-    if (!mixture || !enroll || !model?.available || busy) return
+    if (!mixture || !enroll || !model?.available || inputsLocked) return
     const controller = new AbortController()
     extraction.current = controller
     setRunState('upload')
@@ -164,19 +168,21 @@ export function App() {
               </div>
               {info?.example_available && (
                 <div className="example-control">
-                  <select aria-label="예제 목표 화자" disabled={busy} value={exampleCue} onChange={(event) => setExampleCue(event.currentTarget.value === 'A' ? 'A' : 'B')}>
+                  <select aria-label="예제 목표 화자" disabled={inputsLocked} value={exampleCue} onChange={(event) => setExampleCue(event.currentTarget.value === 'A' ? 'A' : 'B')}>
                     <option value="A">화자 A</option>
                     <option value="B">화자 B</option>
                   </select>
-                  <button type="button" className="secondary" disabled={busy} onClick={() => void loadExample(exampleCue)}>
+                  <button type="button" className="secondary" disabled={inputsLocked} onClick={() => void loadExample(exampleCue)}>
                     <FlaskConical size={16} aria-hidden="true" /> 예제 불러오기
                   </button>
                 </div>
               )}
             </div>
             <div className="upload-grid">
-              <Upload label="혼합 음성" hint="여러 사람이 포함된 WAV · 최대 30초" icon={Layers} file={mixture} disabled={busy} onChange={(next) => changeFile(next, 'mixture')} />
-              <Upload label="등록 음성" hint="목표 화자 한 사람의 별도 녹음 · 1–20초" icon={ScanFace} file={enroll} disabled={busy} onChange={(next) => changeFile(next, 'enroll')} />
+              <Upload label="혼합 음성" hint="여러 사람이 포함된 WAV · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
+              <Upload label="등록 음성" hint="목표 화자 한 사람의 별도 녹음 · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
+                <EnrollmentRecorder active={page === 'extract'} disabled={busy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
+              </Upload>
             </div>
             <div className="setup-actions">
               <div className="model-detail">
@@ -184,7 +190,7 @@ export function App() {
                 <span>{model?.name || 'REAL-TSE BSRNN'} <span className="detail-separator">·</span> <span className="sample-format">16 kHz 모노</span></span>
                 {(!model?.available && (model || modelError)) && <button type="button" className="button-link" onClick={() => setModelRefresh((n) => n + 1)}>다시 확인</button>}
               </div>
-              <button type="button" className="primary" disabled={!mixture || !enroll || !model?.available || busy} onClick={() => void submit()}>
+              <button type="button" className="primary" disabled={!mixture || !enroll || !model?.available || inputsLocked} onClick={() => void submit()}>
                 {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <AudioLines size={18} aria-hidden="true" />} 음성 추출
               </button>
             </div>
@@ -201,7 +207,7 @@ export function App() {
             <div className="section-heading results-heading">
               <div className="heading-with-icon">
                 <span className="section-icon"><Waves size={20} aria-hidden="true" /></span>
-                <div><h2 id="result-title">원본과 결과 비교</h2><p>같은 시간축에서 듣고 파형을 확인하세요.</p></div>
+                <div><h2 id="result-title">원본과 결과 비교</h2><p>재생 위치를 유지하면서 원본과 추정 음성을 전환할 수 있습니다.</p></div>
               </div>
               {result && (
                 <div className="metrics">
@@ -211,10 +217,14 @@ export function App() {
                 </div>
               )}
             </div>
-            <div className="preview-grid">
-              <AudioPreview tone="input" label="원본 혼합 음성" description="비교 재생용 · 16 kHz 모노" blob={result?.original ?? null} download={mixture} filename={mixture?.name || 'voicefocus-original.wav'} />
-              <AudioPreview tone="output" label="추정 음성" description="등록한 목표 화자의 추출 결과" blob={result?.output ?? null} filename="voicefocus-extracted.wav" />
-            </div>
+            {result ? (
+              <Comparison key={result.job.id} original={result.original} output={result.output} inputFile={mixture} duration={result.job.duration_seconds} />
+            ) : (
+              <div className="preview-grid">
+                <AudioPreview tone="input" label="원본 혼합 음성" description="비교 재생용 · 16 kHz 모노" blob={null} filename="voicefocus-original.wav" />
+                <AudioPreview tone="output" label="추정 음성" description="등록한 목표 화자의 추출 결과" blob={null} filename="voicefocus-extracted.wav" />
+              </div>
+            )}
           </section>
         </div>
 

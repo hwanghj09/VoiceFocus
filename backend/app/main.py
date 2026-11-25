@@ -169,9 +169,10 @@ async def read_uploads(request: Request, limits: dict[str, tuple[float, int]]) -
     length = request.headers.get("content-length")
     if length is not None and (not length.isdigit() or int(length) > MAX_REQUEST_BYTES):
         raise HTTPException(413, "업로드 용량을 초과했습니다.")
-    parser = MultiPartParser(request.headers, limited_body(), max_files=2, max_fields=0)
-    if not request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
+    media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
+    if media_type != "multipart/form-data":
         raise HTTPException(415, "WAV 파일 2개를 multipart/form-data로 올려 주세요.")
+    parser = MultiPartParser(request.headers, limited_body(), max_files=2, max_fields=0)
     try:
         form = await parser.parse()
     except MultiPartException as exc:
@@ -241,7 +242,13 @@ def create_app() -> FastAPI:
         if name not in EXAMPLE_FILES or not (runtime.example_dir / name).is_file():
             raise HTTPException(404, "예제 음성을 찾을 수 없습니다.")
         path = runtime.example_dir / name
-        return Response(playback_wav(await asyncio.to_thread(read_audio, path)), media_type="audio/wav", headers=NO_STORE)
+        minimum, maximum = (0.1, MAX_MIX_SECONDS) if name == "mixed.wav" else (1.0, MAX_ENROLL_SECONDS)
+        try:
+            signal = await asyncio.to_thread(read_audio, path, min_seconds=minimum, max_seconds=maximum)
+        except AudioError as exc:
+            log.warning("Invalid VoiceFocus example %s: %s", name, exc)
+            raise HTTPException(422, "예제 WAV를 읽을 수 없습니다.") from exc
+        return Response(playback_wav(signal), media_type="audio/wav", headers=NO_STORE)
 
     @app.post("/api/v1/mix")
     async def mix(request: Request) -> Response:

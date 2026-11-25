@@ -1,27 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { AudioLines, Download, Pause, Play } from 'lucide-react'
+import { clock, useBlobUrl } from '../audio/playback'
 
 const RATE = 16_000
 const COLOR = { input: '#4a58bf', output: '#147e76' }
-
-function clock(seconds: number): string {
-  const value = Math.floor(seconds)
-  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`
-}
-
-function useBlobUrl(blob: Blob | null): string {
-  const [url, setUrl] = useState('')
-  useEffect(() => {
-    if (!blob) {
-      setUrl('')
-      return
-    }
-    const next = URL.createObjectURL(blob)
-    setUrl(next)
-    return () => URL.revokeObjectURL(next)
-  }, [blob])
-  return url
-}
 
 function Player({ url, label }: { url: string; label: string }) {
   const audio = useRef<HTMLAudioElement>(null)
@@ -99,7 +81,7 @@ function drawWave(canvas: HTMLCanvasElement, samples: Float32Array, accent: stri
   ctx.stroke()
 }
 
-function AudioPlots({ blob, label, accent }: { blob: Blob; label: string; accent: string }) {
+function AudioPlots({ blob, label, accent, progress }: { blob: Blob; label: string; accent: string; progress?: number }) {
   const wave = useRef<HTMLCanvasElement>(null)
   const spectrum = useRef<HTMLCanvasElement>(null)
   const [error, setError] = useState('')
@@ -140,25 +122,35 @@ function AudioPlots({ blob, label, accent }: { blob: Blob; label: string; accent
       worker?.terminate()
     }
   }, [blob, accent])
+  const marker = progress === undefined ? null : (
+    <span className="plot-playhead" aria-hidden="true" style={{ left: `${progress * 100}%` }} />
+  )
   return (
     <>
       <div className="plot-title"><span>파형</span><span>진폭 −1 ~ +1</span></div>
-      <canvas className="wave" ref={wave} width={1024} height={184} role="img" aria-label={label + ' 파형'} />
+      <div className="plot">
+        <canvas className="wave" ref={wave} width={1024} height={184} role="img" aria-label={label + ' 파형'} />
+        {marker}
+      </div>
       <div className="plot-title"><span>스펙트로그램</span><span>0–8 kHz · −85 ~ −10 dBFS</span></div>
-      <canvas className="spectrum" ref={spectrum} role="img" aria-label={label + ' 스펙트로그램'} />
+      <div className="plot">
+        <canvas className="spectrum" ref={spectrum} role="img" aria-label={label + ' 스펙트로그램'} />
+        {marker}
+      </div>
       <div className="time-axis"><span>0초</span><span>{duration === null ? '시간' : `${duration.toFixed(2)}초`}</span></div>
       {error && <p className="field-error" role="alert">{error}</p>}
     </>
   )
 }
 
-export function AudioPreview({ label, description, tone, blob, download, filename }: {
+export function AudioPreview({ label, description, tone, blob, download, filename, progress }: {
   label: string
   description: string
   tone: keyof typeof COLOR
   blob: Blob | null
   download?: Blob | null
   filename: string
+  progress?: number
 }) {
   const url = useBlobUrl(blob)
   const alternateUrl = useBlobUrl(download ?? null)
@@ -171,8 +163,8 @@ export function AudioPreview({ label, description, tone, blob, download, filenam
       </div>
       {url && blob ? (
         <>
-          <Player key={url} url={url} label={label} />
-          <AudioPlots key={url + '-plots'} blob={blob} label={label} accent={COLOR[tone]} />
+          {progress === undefined && <Player key={url} url={url} label={label} />}
+          <AudioPlots key={url + '-plots'} blob={blob} label={label} accent={COLOR[tone]} progress={progress} />
         </>
       ) : (
         <div className="empty-wave"><AudioLines size={23} aria-hidden="true" /><span>오디오를 기다리는 중</span></div>

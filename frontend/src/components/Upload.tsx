@@ -1,30 +1,33 @@
 import { useId, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { FileAudio, UploadCloud, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 const MAX_SIZE = 16 * 1024 * 1024
 
-export function Upload({ label, hint, icon: Icon, file, disabled, onChange }: {
+export function Upload({ label, hint, icon: Icon, file, disabled, onChange, children }: {
   label: string
   hint: string
   icon: LucideIcon
   file: File | null
   disabled: boolean
   onChange: (file: File | null) => void
+  children?: ReactNode
 }) {
   const inputId = useId()
   const hintId = useId()
   const input = useRef<HTMLInputElement>(null)
   const [dropping, setDropping] = useState(false)
-  const [error, setError] = useState('')
+  const [invalid, setInvalid] = useState<{ file: File | null; message: string } | null>(null)
+  const error = invalid?.file === file ? invalid.message : ''
 
   function choose(next?: File) {
     if (!next || disabled) return
     if (!next.name.toLowerCase().endsWith('.wav') || next.size > MAX_SIZE || !next.size) {
-      setError('16 MiB 이하의 비어 있지 않은 WAV 파일을 선택해 주세요.')
+      setInvalid({ file, message: '16 MiB 이하의 비어 있지 않은 WAV 파일을 선택해 주세요.' })
       return
     }
-    setError('')
+    setInvalid(null)
     onChange(next)
   }
 
@@ -60,7 +63,7 @@ export function Upload({ label, hint, icon: Icon, file, disabled, onChange }: {
             <div className="file-actions">
               <button type="button" className="button-link" disabled={disabled} onClick={() => input.current?.click()}>변경</button>
               <button type="button" className="icon-button" disabled={disabled} aria-label={`${label} 지우기`} onClick={() => {
-                setError('')
+                setInvalid(null)
                 onChange(null)
               }}><X size={15} aria-hidden="true" /></button>
             </div>
@@ -74,6 +77,7 @@ export function Upload({ label, hint, icon: Icon, file, disabled, onChange }: {
         )}
       </div>
       {error && <p className="field-error" role="alert">{error}</p>}
+      {children}
     </div>
   )
 }

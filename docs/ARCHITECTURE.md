@@ -23,7 +23,7 @@ flowchart LR
 | GET | `/api/v1/jobs/{id}/original` | 16 kHz 모노 비교 재생용 혼합 PCM WAV |
 | GET | `/api/v1/examples/{name}` | 로컬에서 생성한 `mixed.wav`, `enroll.wav`, `enroll_b.wav` |
 
-`processing_ms`는 대기열 통과 이후의 시간으로 모델 로딩과 인코딩을 포함한다. `inference_ms`는 모델이 파형을 처리하는 데 걸린 시간이다. 결과 비교는 같은 길이의 16 kHz 모노 WAV 두 개를 사용하며, 원본 다운로드 버튼은 브라우저에서 선택한 파일을 그대로 제공한다.
+`processing_ms`는 대기열 통과 이후의 시간으로 모델 로딩과 인코딩을 포함한다. `inference_ms`는 모델이 파형을 처리하는 데 걸린 시간이다. 결과 비교는 같은 길이의 16 kHz 모노 WAV 두 개를 사용한다. 비교 재생기는 선택한 음성이 바뀌어도 위치를 유지하며, 원본 다운로드 버튼은 선택한 파일을 그대로 제공한다. 브라우저 마이크 녹음은 1–20초 등록 WAV로 변환하며, 추출을 요청할 때 업로드한다.
 
 ## 저장 및 실행
 
@@ -37,4 +37,4 @@ flowchart LR
 | `VOICEFOCUS_EXAMPLE_DIR` | `artifacts/synthetic/e02-full` | 웹에서 선택할 수 있는 세 예제 WAV의 디렉터리 |
 | `VOICEFOCUS_CHECKPOINT_ARCHIVE` | 공식 다운로드 | 설치 시 재사용할 체크포인트 ZIP 경로 |
 
-REAL-TSE BSRNN의 추론 코드는 입력·출력 상태를 청크 간 이어받는 API를 제공하지 않는다. 현재 구현의 오프라인 경로와 지연 측정은 [평가 결과](EVALUATION.md)에 기록했다.
+스트리밍 실험은 causal 체크포인트의 등록 임베딩, STFT 입출력 겹침 샘플, 각 시간축 LSTM의 은닉 상태와 셀 상태를 세션별로 유지한다. 창이 완성돼 파형이 확정된 구간을 반환하며, 마지막 청크에서 원래 입력 길이에 맞춰 남은 샘플을 출력한다. 지연과 품질 측정은 [평가 결과](EVALUATION.md)에 기록했다.
