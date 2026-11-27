@@ -4,6 +4,37 @@ VoiceFocus는 혼합 WAV와 별도의 등록 WAV에서 원하는 사람의 목�
 
 ## 실행
 
+### Windows 네이티브 실행 (PowerShell, 실험적 지원)
+
+Windows 10/11 x64에서 WSL 없이 실행할 수 있도록 PowerShell 설치 스크립트를 제공합니다. Python 3.11 x64 (또는 3.12), Node.js 22.12 이상, Git for Windows, curl.exe가 필요합니다. Python 3.11을 기본으로 선택하며, 3.12를 사용하는 경우 `-Python`에 해당 python.exe의 절대 경로를 전달하세요. 기존 Linux 가상환경을 공유하지 마세요.
+
+```powershell
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File scripts/setup_demo.ps1
+powershell -ExecutionPolicy Bypass -File scripts/serve_demo.ps1
+```
+
+브라우저에서 http://127.0.0.1:8000 을 엽니다. 기본 설치는 CPU 기반 REAL-TSE 파일 추출, 실시간 마이크/웹 통화 및 자동 판별 모델을 준비합니다. 화음 분리는 추가 설치입니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup_demo.ps1 -WithHarmony
+```
+
+설치 스크립트는 Linux와 동일한 PyTorch 버전, 공급자 Git 리비전 및 체크포인트 검증 함수를 사용합니다. Windows 실제 모델 추론은 아직 검증되지 않았습니다. S3PRL은 소스 배포이며 Asteroid 등 일부 의존성은 C/C++ 빌드 도구가 필요할 수 있습니다. 설치 오류가 발생하면 해당 오류를 확인하고 Visual Studio Build Tools의 Desktop development with C++ 워크로드 및 최신 VC++ x64 Redistributable을 설치하거나 WSL2를 사용하세요. 임의로 모델 검증을 생략하지 마세요. FFmpeg가 필요한 추가 실험은 별도로 PATH에 설치하세요.
+
+서버 실행 후 별도의 PowerShell 창에서 확인합니다.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/healthz
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/models | ConvertTo-Json -Depth 5
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q backend/tests
+```
+
+모델 목록의 available 및 live_available은 파일 설치 상태이며 실제 추론 성공을 보장하지 않습니다. 등록 WAV와 혼합 WAV로 실제 추출 및 실시간 마이크 테스트를 추가로 진행하세요. 기본 설치에서는 노래 화음 모델이 없어 자동 판별이 노래로 분류한 입력은 실패할 수 있습니다.
+
+### Linux 실행
+
 Linux CPU 환경에서 Python 3.11–3.12, Node.js 22.12 이상, Git, curl을 사용합니다. 설치 스크립트는 파일 추출, 화음 분리, 웹 통화에 쓰는 모델을 준비하고 프런트엔드를 빌드합니다.
 
 ```bash
