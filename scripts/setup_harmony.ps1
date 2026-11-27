@@ -17,12 +17,12 @@ try {
         $part = "$Weights.part"
         try {
             Run 'curl.exe' @('--fail','--location','--retry','3','--output',$part,"https://huggingface.co/BernardoTorres/singer-identity/resolve/55e09cdfcd733b1c01f2b94f316a0280995a909e/$Variant/model.ts")
-            Run $Python @('-c','from pathlib import Path; from sys import argv; from backend.app.models.harmony import SINGER_SHA256,VICREG_SHA256,verify_file; verify_file(Path(argv[2]),{"contrastive":SINGER_SHA256,"vicreg":VICREG_SHA256}[argv[1]])',$Variant,$part)
+            Run $Python @('-c','from pathlib import Path; from sys import argv; from backend.app.models.harmony import SINGER_SHA256,VICREG_SHA256,verify_file; verify_file(Path(argv[2]),{''contrastive'':SINGER_SHA256,''vicreg'':VICREG_SHA256}[argv[1]])',$Variant,$part)
             Move-Item $part $Weights
         } finally { Remove-Item $part -ErrorAction SilentlyContinue }
     }
     InstallEmbedding 'contrastive' '.voicefocus/models/singer-identity.ts'
     InstallEmbedding 'vicreg' '.voicefocus/models/singer-identity-vicreg.ts'
-    Run $Python @('-c','from backend.app.models.harmony import CONFIG_SHA256,SINGER_SHA256,SOURCE,SPLITTER_SHA256,VICREG_SHA256,VICREG_WEIGHTS,WEIGHTS,verify_file; verify_file(WEIGHTS,SINGER_SHA256); verify_file(VICREG_WEIGHTS,VICREG_SHA256); verify_file(SOURCE/"ckpt"/"best.ckpt",SPLITTER_SHA256); verify_file(SOURCE/"ckpt"/"conf.yml",CONFIG_SHA256); import asteroid')
+    Run $Python @('-c','from backend.app.models.harmony import CONFIG_SHA256,SINGER_SHA256,SOURCE,SPLITTER_SHA256,VICREG_SHA256,VICREG_WEIGHTS,WEIGHTS,verify_file; verify_file(WEIGHTS,SINGER_SHA256); verify_file(VICREG_WEIGHTS,VICREG_SHA256); verify_file(SOURCE/''ckpt''/''best.ckpt'',SPLITTER_SHA256); verify_file(SOURCE/''ckpt''/''conf.yml'',CONFIG_SHA256); import asteroid')
     Write-Host 'Harmony model files verified.'
 } finally { Pop-Location }
