@@ -165,7 +165,7 @@ export function App() {
   const status = {
     idle: result ? '추출 완료' : '',
     example: '예제 음성을 불러오는 중',
-    upload: 'WAV 파일을 올리는 중',
+    upload: '오디오 파일을 올리는 중',
     queued: '처리 대기 중',
     processing: '등록한 목소리를 찾는 중',
     deleting: '',
@@ -195,7 +195,7 @@ export function App() {
         <section className="hero" aria-labelledby="intro-title">
           <div className="hero-content">
             <div className="hero-kicker"><span /> {page === 'call' ? 'WebRTC 실험' : '파일 기반 데모'}</div>
-            <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : page === 'mix' ? '두 WAV 혼합' : '웹 통화'}</h1>
+            <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : page === 'mix' ? '두 오디오 혼합' : '웹 통화'}</h1>
             <p>{page === 'extract'
               ? '대화, 통화 녹음, 두 사람이 부른 무반주 화음에서 등록한 사람의 목소리를 찾습니다.'
               : page === 'mix' ? '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'
@@ -226,15 +226,15 @@ export function App() {
               )}
             </div>
             <div className="upload-grid">
-              <Upload label="혼합 음성" hint="대화, 통화 또는 화음 WAV · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
-              <Upload label="등록 음성" hint="분리할 사람만 말하거나 부르는 별도 WAV · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
+              <Upload label="혼합 음성" hint="대화, 통화 또는 화음 오디오 · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
+              <Upload label="등록 음성" hint="분리할 사람만 말하거나 부르는 별도 오디오 · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
                 <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
             {canRegisterSecondSinger && (
               <details className="keep-enrollment">
                 <summary>남길 가수도 등록 <span>{keepEnrollment ? '등록됨' : '선택'}</span></summary>
-                <Upload label="남길 가수 음성" hint="화음 분리에 사용하는 별도 독창 WAV · 1–20초" icon={ScanFace} file={keepEnrollment} disabled={inputsLocked} onChange={(next) => changeFile(next, 'keep')} />
+                <Upload label="남길 가수 음성" hint="화음 분리에 사용하는 별도 독창 오디오 · 1–20초" icon={ScanFace} file={keepEnrollment} disabled={inputsLocked} onChange={(next) => changeFile(next, 'keep')} />
               </details>
             )}
             <div className="setup-actions">
@@ -341,12 +341,12 @@ function MixPage({ hidden, canTransfer, onTransfer }: { hidden: boolean; canTran
         <div className="section-heading">
           <div className="heading-with-icon">
             <span className="section-icon"><Layers size={20} aria-hidden="true" /></span>
-            <div><h2 id="mix-title">혼합할 음성 선택</h2><p>각 WAV의 시작점을 맞춰 합칩니다.</p></div>
+            <div><h2 id="mix-title">혼합할 음성 선택</h2><p>각 오디오의 시작점을 맞춰 합칩니다.</p></div>
           </div>
         </div>
         <div className="upload-grid">
-          <Upload label="화자 A 음성" hint="첫 번째 WAV · 최대 30초" icon={AudioLines} file={a} disabled={busy} onChange={(next) => change(next, setA)} />
-          <Upload label="화자 B 음성" hint="두 번째 WAV · 최대 30초" icon={AudioLines} file={b} disabled={busy} onChange={(next) => change(next, setB)} />
+          <Upload label="화자 A 음성" hint="첫 번째 오디오 · 최대 30초" icon={AudioLines} file={a} disabled={busy} onChange={(next) => change(next, setA)} />
+          <Upload label="화자 B 음성" hint="두 번째 오디오 · 최대 30초" icon={AudioLines} file={b} disabled={busy} onChange={(next) => change(next, setB)} />
         </div>
         <div className="setup-actions">
           <div className="model-detail"><Activity size={16} aria-hidden="true" /> 16 kHz 모노 WAV</div>
