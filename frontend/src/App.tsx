@@ -23,7 +23,6 @@ interface ExtractionResult {
   job: Job
   original: Blob
   output: Blob
-  residual: Blob | null
 }
 
 export function App() {
@@ -33,17 +32,17 @@ export function App() {
   const [modelRefresh, setModelRefresh] = useState(0)
   const [mixture, setMixture] = useState<File | null>(null)
   const [enroll, setEnroll] = useState<File | null>(null)
-  const [keepEnrollment, setKeepEnrollment] = useState<File | null>(null)
   const [runState, setRunState] = useState<'idle' | 'example' | 'upload' | 'queued' | 'processing' | 'deleting'>('idle')
   const [result, setResult] = useState<ExtractionResult | null>(null)
   const [extractError, setExtractError] = useState('')
   const [deleteNotice, setDeleteNotice] = useState<{ message: string; error: boolean } | null>(null)
   const [exampleCue, setExampleCue] = useState<'A' | 'B'>('A')
-  const [recordingBusy, setRecordingBusy] = useState(false)
+  const [enrollRecording, setEnrollRecording] = useState(false)
+  const [mixtureRecording, setMixtureRecording] = useState(false)
+  const recordingBusy = enrollRecording || mixtureRecording
   const [liveBusy, setLiveBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
   const ready = info?.automatic_available
-  const canRegisterSecondSinger = info?.models.some((model) => model.keep_enrollment_available)
   const busy = runState !== 'idle'
   const inputsLocked = busy || recordingBusy || liveBusy
 
@@ -66,14 +65,11 @@ export function App() {
     setPage(next)
   }
 
-  function changeFile(next: File | null, type: 'mixture' | 'enroll' | 'keep') {
+  function changeFile(next: File | null, type: 'mixture' | 'enroll') {
     if (type === 'mixture') {
       setMixture(next)
-      setKeepEnrollment(null)
     } else if (type === 'enroll') {
       setEnroll(next)
-    } else {
-      setKeepEnrollment(next)
     }
     setExtractError('')
     setDeleteNotice(null)
@@ -94,7 +90,6 @@ export function App() {
       if (controller.signal.aborted) return
       setMixture(input)
       setEnroll(sample)
-      setKeepEnrollment(null)
       setExampleCue(cue)
       setResult(null)
     } catch (error) {
@@ -115,19 +110,18 @@ export function App() {
     const deadline = Date.now() + 16 * 60_000
     const timer = window.setTimeout(() => controller.abort(), deadline - Date.now())
     try {
-      let job = await extract(mixture, enroll, controller.signal, keepEnrollment)
+      let job = await extract(mixture, enroll, controller.signal)
       while (job.status === 'queued' || job.status === 'processing') {
         setRunState(job.status)
         await sleep(700, controller.signal)
         job = await getJob(job.id, controller.signal)
       }
       if (job.status === 'failed') throw new Error(job.error || '목표 화자를 추출하지 못했습니다.')
-      const [original, output, residual] = await Promise.all([
+      const [original, output] = await Promise.all([
         getAudio(job.id, 'original', controller.signal),
         getAudio(job.id, 'result', controller.signal),
-        job.mode === 'harmony' ? getAudio(job.id, 'residual', controller.signal) : null,
       ])
-      if (!controller.signal.aborted) setResult({ job, original, output, residual })
+      if (!controller.signal.aborted) setResult({ job, original, output })
     } catch (error) {
       if (!controller.signal.aborted) setExtractError(errorText(error))
       else if (Date.now() >= deadline) setExtractError('응답 대기 시간이 초과되었습니다.')
@@ -194,12 +188,7 @@ export function App() {
       <main className="layout">
         <section className="hero" aria-labelledby="intro-title">
           <div className="hero-content">
-            <div className="hero-kicker"><span /> {page === 'call' ? 'WebRTC 실험' : '파일 기반 데모'}</div>
             <h1 id="intro-title">{page === 'extract' ? '목표 화자 추출' : page === 'mix' ? '두 오디오 혼합' : '웹 통화'}</h1>
-            <p>{page === 'extract'
-              ? '대화, 통화 녹음, 두 사람이 부른 무반주 화음에서 등록한 사람의 목소리를 찾습니다.'
-              : page === 'mix' ? '두 음성을 같은 시간축에 합쳐 화자 추출에 사용할 WAV를 만듭니다.'
-                : '두 브라우저를 연결하고 상대의 원본 음성과 처리 음성을 전환해 들어 보세요.'}</p>
           </div>
           <div className="hero-signal" aria-hidden="true">{BARS.map((height, index) => (
             <i key={index} style={{ height, opacity: index > 3 && index < 32 ? 0.94 : 0.48 }} />
@@ -211,7 +200,7 @@ export function App() {
             <div className="section-heading">
               <div className="heading-with-icon">
                 <span className="section-icon"><SlidersHorizontal size={20} aria-hidden="true" /></span>
-                <div><h2 id="setup-title">입력 설정</h2><p>혼합 음성과 목표 화자의 등록 음성을 올려 주세요.</p></div>
+                <div><h2 id="setup-title">입력 설정</h2></div>
               </div>
               {info?.example_available && (
                 <div className="example-control">
@@ -226,17 +215,13 @@ export function App() {
               )}
             </div>
             <div className="upload-grid">
-              <Upload label="혼합 음성" hint="대화, 통화 또는 화음 오디오 · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')} />
-              <Upload label="등록 음성" hint="분리할 사람만 말하거나 부르는 별도 오디오 · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
-                <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy} onBusy={setRecordingBusy} onRecorded={(file) => changeFile(file, 'enroll')} />
+              <Upload label="혼합 음성" hint="여러 사람의 목소리 · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')}>
+                <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy || enrollRecording} onBusy={setMixtureRecording} onRecorded={(file) => changeFile(file, 'mixture')} label="혼합 음성 녹음" maxSeconds={30} filename="voicefocus-mixture.wav" />
+              </Upload>
+              <Upload label="등록 음성" hint="목표 화자만 말한 음성 · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
+                <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy || mixtureRecording} onBusy={setEnrollRecording} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
-            {canRegisterSecondSinger && (
-              <details className="keep-enrollment">
-                <summary>남길 가수도 등록 <span>{keepEnrollment ? '등록됨' : '선택'}</span></summary>
-                <Upload label="남길 가수 음성" hint="화음 분리에 사용하는 별도 독창 오디오 · 1–20초" icon={ScanFace} file={keepEnrollment} disabled={inputsLocked} onChange={(next) => changeFile(next, 'keep')} />
-              </details>
-            )}
             <div className="setup-actions">
               <div className="model-detail">
                 <Activity size={16} aria-hidden="true" />
@@ -262,13 +247,12 @@ export function App() {
             <div className="section-heading results-heading">
               <div className="heading-with-icon">
                 <span className="section-icon"><Waves size={20} aria-hidden="true" /></span>
-                <div><h2 id="result-title">원본과 결과 비교</h2><p>같은 재생 위치에서 원본과 결과를 비교할 수 있습니다.</p></div>
+                <div><h2 id="result-title">원본과 결과 비교</h2></div>
               </div>
               {result && (
                 <div className="metrics">
                   <span>전체 처리 <b>{((result.job.processing_ms ?? 0) / 1000).toFixed(2)}초</b></span>
                   <span>모델 추론 <b>{((result.job.inference_ms ?? 0) / 1000).toFixed(2)}초</b></span>
-                  <span>{result.job.model_version}</span>
                   <button type="button" className="secondary" disabled={busy} onClick={() => void removeResult()}>
                     <Trash2 size={15} aria-hidden="true" /> {runState === 'deleting' ? '삭제 중' : '추출 결과 삭제'}
                   </button>
@@ -278,7 +262,7 @@ export function App() {
             {deleteNotice && <p className={deleteNotice.error ? 'error-notice' : 'job-status'} role={deleteNotice.error ? 'alert' : 'status'}>{deleteNotice.message}</p>}
             {result?.job.target_muted && <p className="error-notice" aria-live="polite">등록한 화자를 확인하지 못해 추정 음성을 음소거했습니다.</p>}
             {result ? (
-              <Comparison key={result.job.id} original={result.original} output={result.output} residual={result.residual} uncertainMatch={result.job.uncertain_match} inputFile={mixture} duration={result.job.duration_seconds} />
+              <Comparison key={result.job.id} original={result.original} output={result.output} inputFile={mixture} duration={result.job.duration_seconds} />
             ) : (
               <div className="preview-grid">
                 <AudioPreview tone="input" label="원본 혼합 음성" description="비교 재생용 · 16 kHz 모노" blob={null} filename="voicefocus-original.wav" />
@@ -290,7 +274,7 @@ export function App() {
 
         {page === 'call' && <CallRoom filterAvailable={Boolean(info?.live_available)} />}
 
-        <MixPage hidden={page !== 'mix'} canTransfer={!busy} onTransfer={(file) => {
+        <MixPage hidden={page !== 'mix'} canTransfer={!inputsLocked} onTransfer={(file) => {
           changeFile(file, 'mixture')
           navigate('extract')
           window.scrollTo(0, 0)
@@ -310,6 +294,9 @@ function MixPage({ hidden, canTransfer, onTransfer }: { hidden: boolean; canTran
   const [result, setResult] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [recordingA, setRecordingA] = useState(false)
+  const [recordingB, setRecordingB] = useState(false)
+  const locked = busy || recordingA || recordingB
   const controller = useRef<AbortController | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
 
@@ -320,7 +307,7 @@ function MixPage({ hidden, canTransfer, onTransfer }: { hidden: boolean; canTran
   }
 
   async function combine() {
-    if (!a || !b || busy) return
+    if (!a || !b || locked) return
     const request = new AbortController()
     controller.current = request
     setBusy(true)
@@ -341,16 +328,20 @@ function MixPage({ hidden, canTransfer, onTransfer }: { hidden: boolean; canTran
         <div className="section-heading">
           <div className="heading-with-icon">
             <span className="section-icon"><Layers size={20} aria-hidden="true" /></span>
-            <div><h2 id="mix-title">혼합할 음성 선택</h2><p>각 오디오의 시작점을 맞춰 합칩니다.</p></div>
+            <div><h2 id="mix-title">혼합할 음성 선택</h2></div>
           </div>
         </div>
         <div className="upload-grid">
-          <Upload label="화자 A 음성" hint="첫 번째 오디오 · 최대 30초" icon={AudioLines} file={a} disabled={busy} onChange={(next) => change(next, setA)} />
-          <Upload label="화자 B 음성" hint="두 번째 오디오 · 최대 30초" icon={AudioLines} file={b} disabled={busy} onChange={(next) => change(next, setB)} />
+          <Upload label="화자 A 음성" hint="첫 번째 오디오 · 최대 30초" icon={AudioLines} file={a} disabled={locked} onChange={(next) => change(next, setA)}>
+            <EnrollmentRecorder active={!hidden} disabled={busy || recordingB} onBusy={setRecordingA} onRecorded={(file) => change(file, setA)} label="화자 A 녹음" maxSeconds={30} filename="voicefocus-speaker-a.wav" />
+          </Upload>
+          <Upload label="화자 B 음성" hint="두 번째 오디오 · 최대 30초" icon={AudioLines} file={b} disabled={locked} onChange={(next) => change(next, setB)}>
+            <EnrollmentRecorder active={!hidden} disabled={busy || recordingA} onBusy={setRecordingB} onRecorded={(file) => change(file, setB)} label="화자 B 녹음" maxSeconds={30} filename="voicefocus-speaker-b.wav" />
+          </Upload>
         </div>
         <div className="setup-actions">
           <div className="model-detail"><Activity size={16} aria-hidden="true" /> 16 kHz 모노 WAV</div>
-          <button type="button" className="primary" disabled={!a || !b || busy} onClick={() => void combine()}>
+          <button type="button" className="primary" disabled={!a || !b || locked} onClick={() => void combine()}>
             {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <Layers size={17} aria-hidden="true" />} WAV 혼합
           </button>
         </div>
@@ -360,9 +351,9 @@ function MixPage({ hidden, canTransfer, onTransfer }: { hidden: boolean; canTran
         <div className="section-heading results-heading">
           <div className="heading-with-icon">
             <span className="section-icon"><Waves size={20} aria-hidden="true" /></span>
-            <div><h2 id="mix-result-title">혼합 결과</h2><p>재생하거나 화자 추출 입력으로 사용하세요.</p></div>
+            <div><h2 id="mix-result-title">혼합 결과</h2></div>
           </div>
-          {result && <button type="button" className="secondary" disabled={!canTransfer} onClick={() => onTransfer(result)}>
+          {result && <button type="button" className="secondary" disabled={!canTransfer || locked} onClick={() => onTransfer(result)}>
             <ArrowDownToLine size={16} aria-hidden="true" /> 추출 입력에 사용
           </button>}
         </div>

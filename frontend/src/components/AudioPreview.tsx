@@ -3,7 +3,7 @@ import { AudioLines, Download, Pause, Play } from 'lucide-react'
 import { clock, useBlobUrl } from '../audio/playback'
 
 const RATE = 16_000
-const COLOR = { input: '#4a58bf', output: '#147e76', residual: '#9c4c1d' }
+const COLOR = { input: '#4a58bf', output: '#147e76' }
 
 function Player({ url, label }: { url: string; label: string }) {
   const audio = useRef<HTMLAudioElement>(null)

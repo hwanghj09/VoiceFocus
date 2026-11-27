@@ -27,8 +27,11 @@ function recordingError(error: unknown) {
   return error instanceof Error ? error.message : '녹음 중 오류가 발생했습니다.'
 }
 
-export function EnrollmentRecorder({ active, disabled, onBusy, onRecorded }: {
+export function EnrollmentRecorder({ active, disabled, onBusy, onRecorded, label = '등록 음성 녹음', maxSeconds = MAX_RECORDING_SECONDS, filename = 'voicefocus-enrollment.wav' }: {
   active: boolean
+  label?: string
+  maxSeconds?: number
+  filename?: string
   disabled: boolean
   onBusy: (busy: boolean) => void
   onRecorded: (file: File) => void
@@ -102,7 +105,7 @@ export function EnrollmentRecorder({ active, disabled, onBusy, onRecorded }: {
         setStatus('encoding')
         try {
           const clip = new Blob(chunks, { type: recorder.mimeType })
-          const file = await enrollmentWav(clip)
+          const file = await enrollmentWav(clip, maxSeconds, filename)
           if (current.current === capture) onRecorded(file)
         } catch (reason) {
           if (current.current === capture) setError(recordingError(reason))
@@ -115,9 +118,9 @@ export function EnrollmentRecorder({ active, disabled, onBusy, onRecorded }: {
       setStatus('recording')
       const started = performance.now()
       capture.interval = window.setInterval(() => {
-        setSeconds(Math.min(MAX_RECORDING_SECONDS, Math.floor((performance.now() - started) / 1000)))
+        setSeconds(Math.min(maxSeconds, Math.floor((performance.now() - started) / 1000)))
       }, 200)
-      capture.timer = window.setTimeout(() => stop(capture), MAX_RECORDING_SECONDS * 1000)
+      capture.timer = window.setTimeout(() => stop(capture), maxSeconds * 1000)
     } catch (reason) {
       if (current.current !== capture) return
       setError(recordingError(reason))
@@ -129,7 +132,7 @@ export function EnrollmentRecorder({ active, disabled, onBusy, onRecorded }: {
     <div className="enrollment-recorder">
       {status === 'idle' && (
         <button type="button" className="secondary" disabled={disabled} onClick={() => void start()}>
-          <Mic size={15} aria-hidden="true" /> 등록 음성 녹음
+          <Mic size={15} aria-hidden="true" /> {label}
         </button>
       )}
       {status === 'requesting' && (
@@ -145,10 +148,10 @@ export function EnrollmentRecorder({ active, disabled, onBusy, onRecorded }: {
           <button type="button" className="secondary" onClick={() => { if (current.current) stop(current.current) }}>
             <Square size={14} aria-hidden="true" /> 녹음 종료
           </button>
-          <span>녹음 중 · {seconds} / {MAX_RECORDING_SECONDS}초</span>
+          <span>녹음 중 · {seconds} / {maxSeconds}초</span>
         </>
       )}
-      {status === 'encoding' && <span role="status">등록 WAV로 변환하는 중</span>}
+      {status === 'encoding' && <span role="status">WAV 변환 중</span>}
       {error && <p className="field-error" role="alert">{error}</p>}
     </div>
   )

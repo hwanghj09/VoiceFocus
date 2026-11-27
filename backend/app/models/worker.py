@@ -52,22 +52,14 @@ class Extractor:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract the enrolled speaker using REAL-TSE.")
-    model_choice = parser.add_mutually_exclusive_group(required=True)
-    model_choice.add_argument("--model", type=Path)
-    model_choice.add_argument("--residual", type=Path, help="Separate singing voices and write the remaining audio here.")
+    parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--mixture", required=True, type=Path)
     parser.add_argument("--enroll", required=True, type=Path)
-    parser.add_argument("--keep-enroll", type=Path, help="Optional recording of the singer to keep in harmony mode.")
     parser.add_argument("--verify-target", action="store_true", help="Verify target speech before releasing the call result.")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--metrics", required=True, type=Path)
     args = parser.parse_args()
-    if args.keep_enroll is not None and args.residual is None:
-        parser.error("--keep-enroll requires harmony separation.")
-    if args.verify_target and args.model is None:
-        parser.error("--verify-target requires a speech model.")
-
     mixture, mix_rate = sf.read(args.mixture, dtype="float32")
     enrollment, enroll_rate = sf.read(args.enroll, dtype="float32")
     if any(data.ndim != 1 or rate != SAMPLE_RATE for data, rate in (
@@ -75,30 +67,15 @@ def main() -> None:
     )):
         parser.error("Expected mono, 16 kHz WAVs.")
     metadata = {}
-    if args.residual is not None:
-        from backend.app.models.harmony import HarmonyExtractor
+    extractor = Extractor(args.model, args.device)
+    start = perf_counter()
+    result = extractor.extract(mixture, enrollment)
+    if args.verify_target:
+        from backend.app.models.call import verify_speech
 
-        keep_enrollment = None
-        if args.keep_enroll is not None:
-            keep_enrollment, keep_rate = sf.read(args.keep_enroll, dtype="float32")
-            if keep_enrollment.ndim != 1 or keep_rate != SAMPLE_RATE:
-                parser.error("Expected a mono, 16 kHz reference for the singer to keep.")
-        splitter = HarmonyExtractor(args.device)
-        start = perf_counter()
-        result, remaining, uncertain = splitter.separate(mixture, enrollment, keep_enrollment)
-        metadata["inference_ms"] = (perf_counter() - start) * 1000
-        metadata["uncertain_match"] = uncertain
-        write_analysis_wav(args.residual, remaining)
-    else:
-        extractor = Extractor(args.model, args.device)
-        start = perf_counter()
-        result = extractor.extract(mixture, enrollment)
-        if args.verify_target:
-            from backend.app.models.call import verify_speech
-
-            result = verify_speech(mixture, result, enrollment, extractor.embedding)
-            metadata["target_muted"] = not bool(np.any(result))
-        metadata["inference_ms"] = (perf_counter() - start) * 1000
+        result = verify_speech(mixture, result, enrollment, extractor.embedding)
+        metadata["target_muted"] = not bool(np.any(result))
+    metadata["inference_ms"] = (perf_counter() - start) * 1000
     write_analysis_wav(args.output, result)
     args.metrics.write_text(json.dumps(metadata), encoding="utf-8")
 

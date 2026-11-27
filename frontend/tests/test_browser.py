@@ -61,7 +61,7 @@ def server(samples, tmp_path_factory):
                     time.sleep(0.25)
                     continue
                 assert response.json()["models"][0]["available"], "Install the official REAL-TSE checkpoint first."
-                assert response.json()["automatic_available"], "Install the automatic audio routing model first."
+                assert response.json()["automatic_available"], "Install the speech extraction model first."
                 break
             else:
                 pytest.fail(f"FastAPI did not start.\n{log_path.read_text()}")
@@ -111,12 +111,12 @@ def page(browser, server):
 
 
 def submit_and_wait(page, expected_mode="call"):
-    with page.expect_response(lambda response: response.url.endswith("/api/v1/extract?mode=auto")) as accepted:
+    with page.expect_response(lambda response: response.url.endswith("/api/v1/extract?mode=call")) as accepted:
         page.get_by_role("button", name="음성 추출", exact=True).click()
     response = accepted.value
     assert response.status == 202, response.text()
     assert response.json()["mode"] == expected_mode
-    expect(page.get_by_role("status")).to_have_text("추출 완료", timeout=250_000 if expected_mode == "harmony" else 130_000)
+    expect(page.get_by_role("status")).to_have_text("추출 완료", timeout=130_000)
     job = page.request.get(response.url.split("?", 1)[0].replace("/extract", f"/jobs/{response.json()['id']}")).json()
     assert job["status"] == "completed"
     assert job["processing_ms"] >= job["inference_ms"] > 0
@@ -192,7 +192,7 @@ def test_microphone_recording_generates_wav_and_extracts(page, server, samples, 
     page.get_by_label("등록 음성", exact=True).set_input_files({
         "name": "wrong-format.mp3", "mimeType": "audio/mpeg", "buffer": b"invalid audio",
     })
-    expect(page.get_by_role("alert")).to_contain_text("WAV 파일을 선택해 주세요")
+    expect(page.get_by_role("alert")).to_contain_text("오디오 파일을 선택해 주세요")
     page.get_by_role("button", name="등록 음성 녹음", exact=True).click()
     expect(page.get_by_role("button", name="녹음 종료")).to_be_visible()
     expect(page.get_by_role("button", name="음성 추출", exact=True)).to_be_disabled()
@@ -362,81 +362,23 @@ def test_mix_invalid_audio_recovers_and_transfers(page, server, samples):
     assert si_sdr(target, extracted) - si_sdr(target, mixture) > 3
 
 
-def test_harmony_removes_enrolled_tenor_and_can_swap_outputs(page, server, tmp_path):
-    case_dir = os.environ.get("VOICEFOCUS_E2E_HARMONY_DIR")
-    if not case_dir:
-        pytest.skip("Set VOICEFOCUS_E2E_HARMONY_DIR to a measured Niño Dios fixture.")
-    case = Path(case_dir)
+def test_mixture_recording_and_mix_recording(page, server):
     page.goto(server)
-    expect(page.get_by_text("모델 사용 가능")).to_be_visible()
-    page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
-    page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll_b.wav")
-    job = submit_and_wait(page, expected_mode="harmony")
-    assert job["mode"] == "harmony"
-
-    removed = page.get_by_role("button", name="목표 제거 후", exact=True)
-    removed.click()
-    expect(removed).to_have_attribute("aria-pressed", "true")
-    link = page.get_by_role("link", name="목표 제거 후 WAV 다운로드")
-    with page.expect_download() as download:
-        link.click()
-    assert download.value.suggested_filename == "voicefocus-target-removed.wav"
-    result_path = tmp_path / "removed.wav"
-    download.value.save_as(result_path)
-    retained, rate = sf.read(result_path, dtype="float32")
-    reference = sf.read(case / "reference-a.wav", dtype="float32")[0]
-    mixture = sf.read(case / "mixed.wav", dtype="float32")[0]
-    assert rate == 16000 and retained.shape == mixture.shape
-    assert si_sdr(reference, retained) - si_sdr(reference, mixture) > 10
-
-    path = server + f"/api/v1/jobs/{job['id']}"
-    target = page.request.get(path + "/result").body()
-    original = page.request.get(path + "/original").body()
-    estimate = sf.read(io.BytesIO(target))[0]
-    original_signal = sf.read(io.BytesIO(original))[0]
-    np.testing.assert_allclose(estimate + retained, original_signal, atol=2 / 32768, rtol=0)
-
-    page.get_by_role("button", name="제거 대상 바꾸기").click()
-    expect(page.get_by_role("button", name="목표 목소리만", exact=True)).to_have_attribute("aria-pressed", "true")
-    page.set_viewport_size({"width": 390, "height": 844})
-    assert page.evaluate("document.documentElement.scrollWidth") == 390
-    with page.expect_download() as swapped:
-        link.click()
-    second = tmp_path / "swapped.wav"
-    swapped.value.save_as(second)
-    assert second.read_bytes() == target
-
-
-def test_harmony_two_references_disambiguate_singers_in_unison(page, server, samples, tmp_path):
-    case_dir = os.environ.get("VOICEFOCUS_E2E_ACCURACY_DIR")
-    if not case_dir:
-        pytest.skip("Set VOICEFOCUS_E2E_ACCURACY_DIR to the Rossinyol unison fixture.")
-    case = Path(case_dir)
-    page.goto(server)
-    page.get_by_label("혼합 음성", exact=True).set_input_files(case / "mixed.wav")
-    page.get_by_label("등록 음성", exact=True).set_input_files(case / "enroll-a.wav")
-    page.get_by_text("남길 가수도 등록").click()
-    page.get_by_label("남길 가수 음성", exact=True).set_input_files(case / "enroll-b.wav")
-    expect(page.get_by_text("enroll-b.wav", exact=True)).to_be_visible()
-    page.set_viewport_size({"width": 390, "height": 844})
-    assert page.evaluate("document.documentElement.scrollWidth") == 390
-    submit_and_wait(page, expected_mode="harmony")
-
-    with page.expect_download() as download:
-        page.get_by_role("link", name="목표 제거 후 WAV 다운로드").click()
-    result_path = tmp_path / "two-references.wav"
-    download.value.save_as(result_path)
-    result, rate = sf.read(result_path, dtype="float32")
-    retained, mixture, one_reference = (
-        sf.read(case / name, dtype="float32")[0]
-        for name in ("reference-b.wav", "mixed.wav", "remove-a-one.wav")
-    )
-    assert rate == 16000 and result.shape == mixture.shape
-    assert si_sdr(retained, result) - si_sdr(retained, mixture) > 5
-    assert si_sdr(retained, result) - si_sdr(retained, one_reference) > 10
-
-    page.get_by_label("혼합 음성", exact=True).set_input_files(samples / "mixed.wav")
-    expect(page.get_by_role("button", name="남길 가수 음성 파일 선택")).to_be_visible()
+    page.get_by_role("button", name="혼합 음성 녹음", exact=True).click()
+    expect(page.get_by_role("button", name="녹음 종료")).to_be_visible()
+    expect(page.get_by_role("button", name="등록 음성 녹음", exact=True)).to_be_disabled()
+    page.wait_for_timeout(1500)
+    page.get_by_role("button", name="녹음 종료").click()
+    expect(page.get_by_text("voicefocus-mixture.wav", exact=True)).to_be_visible()
+    page.get_by_role("navigation").get_by_role("button", name="WAV 혼합").click()
+    for label, name in (("화자 A 녹음", "voicefocus-speaker-a.wav"), ("화자 B 녹음", "voicefocus-speaker-b.wav")):
+        page.get_by_role("button", name=label, exact=True).click()
+        expect(page.get_by_role("button", name="녹음 종료")).to_be_visible()
+        page.wait_for_timeout(1500)
+        page.get_by_role("button", name="녹음 종료").click()
+        expect(page.get_by_text(name, exact=True)).to_be_visible()
+    page.get_by_role("main").get_by_role("button", name="WAV 혼합", exact=True).click()
+    expect(page.get_by_role("button", name="추출 입력에 사용")).to_be_enabled(timeout=15000)
 
 
 def test_call_with_the_enrolled_speaker_absent_downloads_silence(page, server, tmp_path):

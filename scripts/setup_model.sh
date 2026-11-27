@@ -9,7 +9,6 @@ esac
 
 "$python_bin" -c 'import torch, torchaudio; assert torch.__version__.split("+")[0] == torchaudio.__version__.split("+")[0] == "2.7.1"'
 "$python_bin" -m pip install -r backend/requirements.txt -r backend/requirements-model.txt
-PYTHON="$python_bin" bash scripts/setup_routing.sh
 # REAL-TSE's wheel omits namespace packages used by inference.
 checkout() {
   local name="$1" url="$2" revision="$3" directory

@@ -14,6 +14,5 @@ export PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 "$python_bin" -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1 torchaudio==2.7.1
 PYTHON="$python_bin" bash scripts/setup_model.sh spk_emb_100
 PYTHON="$python_bin" bash scripts/setup_model.sh spk_emb_causal_100
-CC="${CC:-cc}" PYTHON="$python_bin" bash scripts/setup_harmony.sh
 npm --prefix frontend ci --no-audit --no-fund
 npm --prefix frontend run build

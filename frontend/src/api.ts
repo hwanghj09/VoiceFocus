@@ -4,7 +4,6 @@ export interface ModelInfo {
   version: string
   sample_rate: number
   available: boolean
-  keep_enrollment_available?: boolean
 }
 
 export interface ModelStatus {
@@ -14,7 +13,7 @@ export interface ModelStatus {
   live_available: boolean
 }
 
-export type Mode = 'speech' | 'harmony' | 'call'
+export type Mode = 'speech' | 'call'
 
 export interface Job {
   id: string
@@ -25,7 +24,6 @@ export interface Job {
   duration_seconds: number
   mode: Mode
   model_version: string
-  uncertain_match: boolean
   target_muted: boolean | null
 }
 
@@ -50,13 +48,12 @@ export async function getExample(name: string, signal: AbortSignal): Promise<Fil
 }
 
 export async function extract(
-  mixture: File, enrollment: File, signal: AbortSignal, keepEnrollment: File | null = null,
+  mixture: File, enrollment: File, signal: AbortSignal,
 ): Promise<Job> {
   const body = new FormData()
   body.append('mixture', mixture)
   body.append('enrollment', enrollment)
-  if (keepEnrollment) body.append('keep_enrollment', keepEnrollment)
-  return (await request('/extract?mode=auto', { method: 'POST', body, signal })).json()
+  return (await request('/extract?mode=call', { method: 'POST', body, signal })).json()
 }
 
 export async function mix(a: File, b: File, signal: AbortSignal): Promise<File> {
@@ -75,7 +72,7 @@ export async function deleteJob(id: string, signal: AbortSignal): Promise<void> 
   await request('/jobs/' + id, { method: 'DELETE', signal })
 }
 
-export async function getAudio(id: string, type: 'original' | 'result' | 'residual', signal: AbortSignal): Promise<Blob> {
+export async function getAudio(id: string, type: 'original' | 'result', signal: AbortSignal): Promise<Blob> {
   return (await request('/jobs/' + id + '/' + type, { signal })).blob()
 }
 

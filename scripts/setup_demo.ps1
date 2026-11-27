@@ -1,4 +1,4 @@
-param([string]$Python = '', [switch]$WithHarmony)
+param([string]$Python = '')
 $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
@@ -24,9 +24,6 @@ try {
     Run $venv @('-m','pip','install','--index-url','https://download.pytorch.org/whl/cpu','torch==2.7.1','torchaudio==2.7.1')
     & (Join-Path $PSScriptRoot 'setup_model.ps1') -Python $venv -Model spk_emb_100
     & (Join-Path $PSScriptRoot 'setup_model.ps1') -Python $venv -Model spk_emb_causal_100
-    if ($WithHarmony) {
-        & (Join-Path $PSScriptRoot 'setup_harmony.ps1') -Python $venv
-    }
     Run $venv @('-m','pip','check')
     Run $venv @('-c','from backend.app.main import app; import torch, torchaudio; print(''Backend imports OK'')')
     Run 'npm.cmd' @('--prefix','frontend','ci','--no-audit','--no-fund')

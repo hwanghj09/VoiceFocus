@@ -1,12 +1,52 @@
 # VoiceFocus
 
-VoiceFocus는 혼합 오디오와 별도의 등록 오디오에서 원하는 사람의 목소리를 찾는 파일 기반 웹 데모입니다. 대화, 통화 녹음, 두 사람이 부른 무반주 화음을 같은 화면에서 처리합니다. 브라우저에서 원본과 결과를 재생하고, 파형과 스펙트로그램을 비교하고, WAV를 내려받을 수 있습니다.
+> 여러 사람이 동시에 말할 때, 등록한 사람의 목소리만 추출하는 AI 음성 분리 연구 및 웹 애플리케이션.
+
+**파동의 중첩 → FFT → STFT → 화자 임베딩 → REAL-TSE → 에너지·화자 검증 → 실시간 통화**
+
+## 연구 최종 정리
+
+서로 다른 주파수의 사인파는 FFT로 분리할 수 있지만 실제 목소리는 주파수 대역이 시간에 따라 변하고 서로 겹친다. 목표 화자의 별도 등록 음성에서 특징을 추출하고, 사전 학습된 REAL-TSE 모델로 목표 음성을 추정한다. 혼합 신호의 에너지와 임베딩 유사도 기반 검증으로 잘못된 화자 선택 및 목표 부재 구간의 출력 문제를 일부 개선했다.
+
+| 핵심 실험 | 결과 |
+|---|---:|
+| 440/880 Hz 파동 복원 RMSE | 3.008×10⁻¹⁴ / 5.976×10⁻¹⁴ |
+| 동일/다른 화자 코사인 유사도 중앙값 | 0.6691 / 0.1167 |
+| 자연 음성 SI-SDRi 중앙값 | +16.65 dB |
+| 합성 음성 SI-SDRi 중앙값 | +10.23 dB |
+| 통화 모사, 목표 부재 시 완전 음소거 | 0/3 → 3/3 |
+| 적응형 검증, E02 출력 지연 p95 | 1.58 / 1.73초 |
+
+측정값은 기존 2026-11-25 AI 실험과 2026-11-27 DSP 재현 계산을 구별한다. CPU 시뮬레이션에서 100 ms 미만 지연 목표는 미달했다. 일반 전화 앱 연동 및 실제 전화망 전체 지연은 검증하지 않았다.
+
+### 연구 문서
+
+| 문서 | 내용 |
+|---|---|
+| [연구 과정](docs/RESEARCH_PROCESS.md) | 연구 동기, 단계별 원리, 문제 해결 |
+| [최종 연구 결과](docs/EVALUATION.md) | 핵심 수치, 결론 및 한계 |
+| [01 파동·FFT·STFT](docs/experiments/01_DSP.md) | 기초 실험, 복원 오차 |
+| [02 화자 임베딩](docs/experiments/02_EMBEDDING.md) | 코사인 유사도 비교 |
+| [03 목표 화자 추출](docs/experiments/03_TSE.md) | 자연·합성 음성 분리 |
+| [04 통화 검증](docs/experiments/04_CALL.md) | 잔차·에너지·유사도 검증 |
+| [05 스트리밍](docs/experiments/05_STREAMING.md) | 독립 청크와 상태 유지 |
+| [06 실시간 개선](docs/experiments/06_LIVE.md) | 검증 창, 지연·품질 |
+| [원본 실험 데이터](docs/results/) | CSV, JSON |
+| [시스템 구조](docs/ARCHITECTURE.md) · [배포](docs/DEPLOYMENT.md) | API, 설치 및 개인정보 |
+
+## 주요 기능
+
+- **화자 추출:** 혼합 음성(최대 30초)과 등록 음성(1–20초)을 파일로 업로드하거나 마이크로 녹음
+- **WAV 혼합:** 화자 A/B 음성을 각각 업로드 또는 녹음하고 합성한 뒤 추출 화면으로 전달
+- **결과 비교:** 같은 시간 위치에서 원본과 결과 재생, 파형·스펙트로그램, 다운로드
+- **실시간 마이크:** 등록된 화자의 음성 추정과 지연 표시
+- **웹 통화:** WebRTC 자체 통화방, 상대 등록 음성으로 수신 음성 필터링
 
 ## 실행
 
-### Windows 네이티브 실행 (PowerShell, 실험적 지원)
+### Windows (PowerShell)
 
-Windows 10/11 x64에서 WSL 없이 실행할 수 있도록 PowerShell 설치 스크립트를 제공합니다. Python 3.11 x64 (또는 3.12), Node.js 22.12 이상, Git for Windows, curl.exe가 필요합니다. Python 3.11을 기본으로 선택하며, 3.12를 사용하는 경우 `-Python`에 해당 python.exe의 절대 경로를 전달하세요. 기존 Linux 가상환경을 공유하지 마세요.
+Python 3.11 또는 3.12 x64, Node.js 22.12 이상, Git for Windows, curl.exe가 필요하다. 신규 설치:
 
 ```powershell
 git pull --ff-only
@@ -14,47 +54,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup_demo.ps1
 powershell -ExecutionPolicy Bypass -File scripts/serve_demo.ps1
 ```
 
-브라우저에서 http://127.0.0.1:8000 을 엽니다. 기본 설치는 CPU 기반 REAL-TSE 파일 추출, 실시간 마이크/웹 통화 및 자동 판별 모델을 준비합니다. 화음 분리는 추가 설치입니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/setup_demo.ps1 -WithHarmony
-```
-
-설치 스크립트는 Linux와 동일한 PyTorch 버전, 공급자 Git 리비전 및 체크포인트 검증 함수를 사용합니다. Windows 실제 모델 추론은 아직 검증되지 않았습니다. S3PRL은 소스 배포이며 Asteroid 등 일부 의존성은 C/C++ 빌드 도구가 필요할 수 있습니다. 설치 오류가 발생하면 해당 오류를 확인하고 Visual Studio Build Tools의 Desktop development with C++ 워크로드 및 최신 VC++ x64 Redistributable을 설치하거나 WSL2를 사용하세요. 임의로 모델 검증을 생략하지 마세요. FFmpeg가 필요한 추가 실험은 별도로 PATH에 설치하세요.
-
-서버 실행 후 별도의 PowerShell 창에서 확인합니다.
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/healthz
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/models | ConvertTo-Json -Depth 5
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest -q backend/tests
-```
-
-모델 목록의 available 및 live_available은 파일 설치 상태이며 실제 추론 성공을 보장하지 않습니다. 등록 WAV와 혼합 WAV로 실제 추출 및 실시간 마이크 테스트를 추가로 진행하세요. 기본 설치에서는 노래 화음 모델이 없어 자동 판별이 노래로 분류한 입력은 실패할 수 있습니다.
-
-### Linux 실행
-
-Linux CPU 환경에서 Python 3.11–3.12, Node.js 22.12 이상, Git, curl을 사용합니다. 설치 스크립트는 파일 추출, 화음 분리, 웹 통화에 쓰는 모델을 준비하고 프런트엔드를 빌드합니다.
-
-```bash
-bash scripts/setup_demo.sh
-bash scripts/serve_demo.sh
-```
-
-브라우저에서 [http://127.0.0.1:8000](http://127.0.0.1:8000)을 열고 혼합 오디오(최대 30초)와 등록 오디오(1–20초)를 올린 후 **음성 추출**을 누르세요. 등록 음성은 **등록 음성 녹음**으로 직접 만들 수도 있습니다. 대화나 통화에는 당사자만 말한 녹음, 화음에는 당사자만 부른 녹음을 등록하세요. 파일당 최대 16 MiB를 받습니다. 자동 판별을 추가하기 전 설치에서는 `bash scripts/setup_routing.sh`로 판별 모델을 추가할 수 있습니다.
-
-대화와 통화 녹음에서는 등록한 사람을 확인하기 어려운 구간을 음소거합니다. 같은 재생 위치에서 **원본 혼합 음성**과 **추정 음성**을 전환해 들어 보세요. [통화 평가](docs/EVALUATION.md#통화-녹음에서-등록-화자-추출)
-
-**추출 결과 삭제**를 누르면 브라우저 비교 화면이 비워지고 서버의 결과와 비교용 원본이 즉시 삭제됩니다. [배포와 개인정보](docs/DEPLOYMENT.md)
-
-## 지원 오디오 형식
-
-혼합·등록·추가 등록 음성 및 실시간/웹 통화 등록 음성에 WAV, MP3, M4A, AAC, MP4, WebM, FLAC, Ogg/Opus를 사용할 수 있습니다. 확장자나 MIME 타입이 실제 파일 내용과 달라도 서버가 바이트를 검사합니다. MP4/WebM 영상 파일은 첫 번째 오디오 트랙을 사용하며 오디오 트랙이 없으면 거부합니다. 모델에는 16 kHz 모노 float32 신호를 전달하고 비교·다운로드는 PCM 16-bit WAV로 제공합니다.
-
-FFmpeg는 `imageio-ffmpeg` Python 패키지로 설치되며 Windows x64 및 일반 Linux x86-64 환경에서는 포함된 실행 파일을 사용합니다. 별도 FFmpeg가 필요하면 `IMAGEIO_FFMPEG_EXE`에 신뢰할 수 있는 실행 파일의 절대 경로를 지정할 수 있습니다. 지원 범위는 실제 FFmpeg 빌드의 디코더에 따릅니다. 16 MiB 파일 한도, 혼합 최대 30초, 등록 1–20초 및 무음 검사는 유지합니다. 압축 파일 변환에는 20초 제한을 적용하고 임시 파일은 처리 직후 삭제합니다. 기존 WAV의 샘플레이트·채널 검사는 유지하며 압축 미디어는 직접 모노로 변환합니다.
-
-기존 Windows 설치에서 모델을 다시 다운로드할 필요 없이 서버를 종료한 뒤 아래 명령만 실행하면 됩니다.
+기존 설치는 서버 종료 후 모델 재다운로드 없이 업데이트한다.
 
 ```powershell
 git pull --ff-only
@@ -63,7 +63,18 @@ npm.cmd --prefix frontend run build
 powershell -ExecutionPolicy Bypass -File scripts/serve_demo.ps1
 ```
 
-기존 Linux 설치는 다음과 같이 업데이트합니다.
+Windows 실제 모델 추론은 별도 확인이 필요하다. 의존성 설치 시 Visual Studio Build Tools가 필요할 수 있다.
+
+### Linux
+
+Python 3.11–3.12, Node.js 22.12 이상, Git, curl 필요.
+
+```bash
+bash scripts/setup_demo.sh
+bash scripts/serve_demo.sh
+```
+
+기존 설치:
 
 ```bash
 git pull --ff-only
@@ -72,33 +83,18 @@ npm --prefix frontend run build
 bash scripts/serve_demo.sh
 ```
 
-변환 회귀 테스트: 가상환경 Python에서 `python -m pytest -q backend/tests/test_audio_formats.py backend/tests/test_api.py` 실행. 실제 압축 오디오를 생성하여 확장자 불일치, 모노 변환, API 혼합 및 오류 처리를 확인합니다.
+브라우저에서 [http://127.0.0.1:8000](http://127.0.0.1:8000)을 연다. 마이크는 localhost 또는 HTTPS가 필요하다. 혼합·등록 음성은 WAV, MP3, M4A, AAC, MP4, WebM, FLAC, Ogg/Opus 등 실제 FFmpeg 빌드가 지원하는 형식을 사용할 수 있다. 파일당 최대 16 MiB, 16 kHz 모노 변환을 사용한다. 영상은 첫 오디오 트랙을 사용한다.
 
-### 실시간 마이크 실험
+## 사용 방법
 
-기존 설치에 실시간 모델을 추가하려면 아래 명령을 실행하세요.
+1. **화자 추출:** 혼합 음성과 목표 화자만 말한 등록 음성을 입력하고 음성 추출을 누른다. 화면에서 직접 녹음할 수도 있다.
+2. **WAV 혼합:** 두 사람의 음성을 각각 녹음 또는 업로드한 후 혼합한다. 추출 입력에 사용을 누르면 혼합 파일이 전달된다.
+3. **실시간 마이크:** 등록 음성을 선택한 뒤 마이크를 시작한다. 헤드폰을 착용한 뒤 처리 음성을 듣는다.
+4. **웹 통화:** 두 브라우저가 같은 서버를 사용해 방을 만들고 참가한다. 상대 등록 음성을 선택해 VoiceFocus를 켠다. 동일 네트워크에서 HTTPS를 권장한다.
 
-```bash
-bash scripts/setup_model.sh spk_emb_causal_100
-```
+기본 모델 설치 상태는 `/api/v1/models`에서 확인할 수 있다. 실시간 체크포인트만 추가하려면 `bash scripts/setup_model.sh spk_emb_causal_100` (Windows는 `scripts/setup_model.ps1 -Model spk_emb_causal_100`)을 사용한다.
 
-localhost 또는 HTTPS에서 등록 오디오를 올리고 **실시간 마이크 실험 → 마이크 시작**을 누르세요. 입력과 처리 음량, 최근 128 ms 청크의 서버 처리 시간, 평균 RTF, 예상 재생 지연을 확인할 수 있습니다. 헤드폰을 연결하고 **처리 음성 듣기**를 켜면 분리된 마이크 음성을 들을 수 있습니다. 마이크 정지 또는 화면 이동으로 전송이 끝납니다. [지연 및 품질 측정](docs/EVALUATION.md#브라우저-마이크-실험)
-
-### 웹 통화 실험
-
-한 브라우저에서 **웹 통화 → 방 만들기**를 누르고, 다른 브라우저에서 같은 서버를 열어 **방 코드 → 방 참가**로 연결하세요. 같은 기기의 로컬 시험은 localhost에서, 같은 네트워크의 두 기기 시험은 HTTPS에서 진행하세요. 방에는 두 사람까지 참가할 수 있습니다.
-
-위의 실시간 모델을 설치했다면 **상대 등록 음성**에 상대만 말한 오디오를 넣고 **VoiceFocus 켜기**를 누르세요. 상대의 원본 재생이 음소거되고, 화면에 표시되는 예상 지연 뒤에 서버에서 검증한 음성이 재생됩니다. 두 사람 중 한 명씩 처리 음성을 시험할 수 있습니다. **VoiceFocus 끄기**로 원본 재생을 다시 켤 수 있습니다. 화면에서 나가거나 통화를 종료하면 양쪽 연결과 마이크가 해제됩니다. [시그널링과 오디오 경로](docs/ARCHITECTURE.md#웹-통화-실험)
-
-### 화음 분리
-
-두 사람이 함께 부르는 1–30초의 무반주 화음을 분리할 수 있습니다. 혼합 녹음과 등록 녹음 모두에 노래가 감지되면 자동으로 화음 분리를 사용합니다. **목표 목소리만**과 **목표 제거 후**를 같은 위치에서 재생하거나 WAV로 내려받을 수 있습니다. **제거 대상 바꾸기**로 두 결과의 역할을 전환할 수 있습니다.
-
-두 사람이 같은 음을 부르거나 한쪽 목소리가 더 작으면 **남길 가수도 등록**을 열어 그 사람만 부르는 1–20초 WAV도 올려 보세요. 화음이 감지되면 두 등록 녹음을 각 분리 결과와 대조합니다. [정확도 측정](docs/EVALUATION.md#비슷한-음높이와-음량-차이)
-
-기존 설치에 화음 모델을 추가하려면 `bash scripts/setup_harmony.sh`를 실행하세요.
-
-일부 Linux 환경에서는 Asteroid 의존성 설치에 C 컴파일러가 사용됩니다. 이 환경에서는 `CC=gcc bash scripts/setup_harmony.sh`로 설치할 수 있습니다. CPU에서 검증했으며 모든 비교·출력 파일은 16 kHz 모노입니다. 스크립트는 UNMIXX 소스와 체크포인트를 고정 버전에서 받아오고, MIT로 공개된 Sony CSL 노래 음색 인코더와 함께 사용합니다. UNMIXX 저장소에는 별도 라이선스가 표시되어 있지 않습니다. [UNMIXX](https://github.com/jihoojung0106/unmixx/tree/8e750521b5942f4717656cac86a23cf0bd90dea5) · [노래 음색 인코더](https://huggingface.co/BernardoTorres/singer-identity)
+## 예제 및 개발
 
 입력 폼에 **예제 불러오기**를 표시하려면 아래 명령으로 예제를 만드세요. 합성 예제는 eSpeak NG가 필요합니다. LibriSpeech 명령은 OpenSLR의 CC BY 4.0 테스트 발췌를 사용하며, 아래 환경 변수로 해당 예제를 서버에 표시할 수 있습니다. 설치 스크립트로 만든 가상 환경은 `source .venv/bin/activate`로 활성화할 수 있습니다.
 
@@ -116,6 +112,7 @@ VOICEFOCUS_EXAMPLE_DIR=artifacts/librispeech/e02-full bash scripts/serve_demo.sh
 ## 실험 재현
 
 ```bash
+python -m experiments.00_dsp.evaluate
 export OPENBLAS_NUM_THREADS=1
 python -m experiments.02_speaker_embedding.similarity artifacts/librispeech-source artifacts/embeddings.csv
 python -m experiments.03_tse_baseline.evaluate artifacts/librispeech artifacts/eval-librispeech
@@ -163,13 +160,6 @@ VOICEFOCUS_E2E_CALL_DIR=artifacts/calls/8455-b-absent \
 VOICEFOCUS_E2E_CALL_OVERLAP_DIR=artifacts/calls/a-b-overlap python -m pytest -q frontend/tests
 ```
 
-노래 화음 브라우저 테스트는 [합창 데이터의 개별 WAV](https://zenodo.org/records/2649950)와 위에서 설치한 화음 모델을 사용합니다.
+## 개인정보와 한계
 
-```bash
-OPENBLAS_NUM_THREADS=1 python -m experiments.05_singing.evaluate /path/to/ChoralSingingDataset artifacts/harmony
-OPENBLAS_NUM_THREADS=1 python -m experiments.05_singing.evaluate_accuracy /path/to/ChoralSingingDataset artifacts/harmony-accuracy
-VOICEFOCUS_E2E_HARMONY_DIR=artifacts/harmony/nino-dios-1 \
-VOICEFOCUS_E2E_ACCURACY_DIR=artifacts/harmony-accuracy/rossinyol-unison python -m pytest -q frontend/tests
-```
-
-이 데모는 단일 프로세스로 로컬에서 실행하도록 구성했습니다. 동의를 확보한 음성만 올려 주세요. 업로드 원본의 서버 임시 파일은 처리 직후 삭제하며, 비교용 음성과 추출 결과는 서버 메모리에서 15분 뒤 만료됩니다. 실험 파일과 체크포인트는 Git에서 제외됩니다.
+동의받은 음성만 사용한다. 서버 임시 파일은 정상 작업 종료 시 삭제하고 원본 비교용 및 결과 WAV는 메모리에서 15분 뒤 만료된다. 추출 결과 삭제 기능으로 즉시 삭제할 수 있다. 외부 공개 배포 전에는 인증과 HTTPS를 구성한다. [배포 안내](docs/DEPLOYMENT.md)

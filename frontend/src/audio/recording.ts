@@ -1,11 +1,11 @@
 const RATE = 16_000
 export const MAX_RECORDING_SECONDS = 20
 
-export async function enrollmentWav(recording: Blob): Promise<File> {
+export async function enrollmentWav(recording: Blob, maxSeconds = MAX_RECORDING_SECONDS, filename = 'voicefocus-enrollment.wav'): Promise<File> {
   const decoder = new OfflineAudioContext(1, 1, RATE)
   const decoded = await decoder.decodeAudioData(await recording.arrayBuffer())
-  const length = Math.min(decoded.length, RATE * MAX_RECORDING_SECONDS)
-  if (length < RATE) throw new Error('등록 음성은 1초 이상 녹음해 주세요.')
+  const length = Math.min(decoded.length, RATE * maxSeconds)
+  if (length < RATE) throw new Error('음성은 1초 이상 녹음해 주세요.')
 
   const buffer = new ArrayBuffer(44 + 2 * length)
   const wav = new DataView(buffer)
@@ -29,5 +29,5 @@ export async function enrollmentWav(recording: Blob): Promise<File> {
     const sample = Math.max(-1, Math.min(1, sum / channels.length))
     wav.setInt16(44 + 2 * i, Math.round(sample * (sample < 0 ? 32768 : 32767)), true)
   }
-  return new File([buffer], 'voicefocus-enrollment.wav', { type: 'audio/wav' })
+  return new File([buffer], filename, { type: 'audio/wav' })
 }

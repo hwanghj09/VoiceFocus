@@ -3,18 +3,16 @@ import { Pause, Play } from 'lucide-react'
 import { clock, useBlobUrl } from '../audio/playback'
 import { AudioPreview } from './AudioPreview'
 
-const TRACKS = ['original', 'output', 'residual'] as const
+const TRACKS = ['original', 'output'] as const
 type Track = (typeof TRACKS)[number]
 
-export function Comparison({ original, output, residual, uncertainMatch, inputFile, duration }: {
+export function Comparison({ original, output, inputFile, duration }: {
   original: Blob
   output: Blob
-  residual: Blob | null
-  uncertainMatch: boolean
   inputFile: File | null
   duration: number
 }) {
-  const sources = { original: useBlobUrl(original), output: useBlobUrl(output), residual: useBlobUrl(residual) }
+  const sources = { original: useBlobUrl(original), output: useBlobUrl(output) }
   const media = useRef<Partial<Record<Track, HTMLAudioElement>>>({})
   const active = useRef<Track>('original')
   const [track, setTrack] = useState<Track>('original')
@@ -22,15 +20,11 @@ export function Comparison({ original, output, residual, uncertainMatch, inputFi
   const [position, setPosition] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [error, setError] = useState('')
-  const [swapped, setSwapped] = useState(false)
-  const target = swapped ? 'residual' : 'output'
-  const remainder = swapped ? 'output' : 'residual'
-  const mediaTracks = residual ? TRACKS : TRACKS.slice(0, 2)
-  const tracks: Track[] = residual ? ['original', target, remainder] : ['original', 'output']
+  const mediaTracks = TRACKS
+  const tracks = TRACKS
   const labels: Record<Track, string> = {
     original: '원본 혼합 음성',
-    output: residual ? (swapped ? '목표 제거 후' : '목표 목소리만') : '추정 음성',
-    residual: swapped ? '목표 목소리만' : '목표 제거 후',
+    output: '추정 음성',
   }
   const ready = tracks.every((source) => loaded[source])
   const progress = duration > 0 ? Math.min(position / duration, 1) : 0
@@ -79,12 +73,6 @@ export function Comparison({ original, output, residual, uncertainMatch, inputFi
 
   return (
     <>
-      {residual && (
-        <div className="harmony-review">
-          <p>{uncertainMatch ? '두 후보의 등록 음성 유사도가 가까웠습니다. 먼저 비교해 주세요.' : '두 결과를 들어 보고 제거할 대상을 확인하세요.'}</p>
-          <button type="button" className="secondary" onClick={() => setSwapped((value) => !value)}>제거 대상 바꾸기</button>
-        </div>
-      )}
       <div className="compare-player">
         {mediaTracks.map((source) => (
           <audio
@@ -120,7 +108,7 @@ export function Comparison({ original, output, residual, uncertainMatch, inputFi
               key={source} type="button" aria-pressed={track === source} disabled={!ready}
               onClick={() => selectTrack(source)}
             >
-              <span aria-hidden="true" className={`track-dot ${source === 'original' ? source : (source === target ? 'output' : 'residual')}`} />
+              <span aria-hidden="true" className={`track-dot ${source}`} />
               {labels[source]}
             </button>
           ))}
@@ -144,10 +132,9 @@ export function Comparison({ original, output, residual, uncertainMatch, inputFi
         </div>
         {error && <p className="field-error" role="alert">{error}</p>}
       </div>
-      <div className={`preview-grid${residual ? ' with-residual' : ''}`}>
+      <div className="preview-grid">
         <AudioPreview tone="input" label={labels.original} description="비교 재생용 · 16 kHz 모노" blob={original} download={inputFile} filename={inputFile?.name || 'voicefocus-original.wav'} progress={progress} />
-        <AudioPreview tone="output" label={labels[target]} description="지정한 목소리의 추정 트랙" blob={swapped ? residual : output} filename="voicefocus-extracted.wav" progress={progress} />
-        {residual && <AudioPreview tone="residual" label={labels[remainder]} description="목표 목소리를 뺀 혼합 음성" blob={swapped ? output : residual} filename="voicefocus-target-removed.wav" progress={progress} />}
+        <AudioPreview tone="output" label={labels.output} description="지정한 목소리의 추정 트랙" blob={output} filename="voicefocus-extracted.wav" progress={progress} />
       </div>
     </>
   )
