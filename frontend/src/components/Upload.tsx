@@ -23,8 +23,8 @@ export function Upload({ label, hint, icon: Icon, file, disabled, onChange, chil
 
   function choose(next?: File) {
     if (!next || disabled) return
-    if (!next.name.toLowerCase().endsWith('.wav') || next.size > MAX_SIZE || !next.size) {
-      setInvalid({ file, message: '16 MiB 이하의 비어 있지 않은 WAV 파일을 선택해 주세요.' })
+    if (next.size > MAX_SIZE || !next.size) {
+      setInvalid({ file, message: '16 MiB 이하의 비어 있지 않은 오디오 파일을 선택해 주세요.' })
       return
     }
     setInvalid(null)
@@ -37,7 +37,7 @@ export function Upload({ label, hint, icon: Icon, file, disabled, onChange, chil
       <p id={hintId}>{hint}</p>
       <input
         className="visually-hidden" id={inputId} type="file" ref={input}
-        accept=".wav,audio/wav,audio/x-wav" aria-describedby={hintId} disabled={disabled}
+        accept="audio/*,.wav,.mp3,.m4a,.aac,.mp4,.webm,.flac,.ogg,.opus,video/mp4,video/webm" aria-describedby={hintId} disabled={disabled}
         onChange={(event) => {
           choose(event.currentTarget.files?.[0])
           event.currentTarget.value = ''
@@ -72,7 +72,7 @@ export function Upload({ label, hint, icon: Icon, file, disabled, onChange, chil
           <button type="button" className="pick-file" aria-label={`${label} 파일 선택`} disabled={disabled} onClick={() => input.current?.click()}>
             <span className="drop-icon"><UploadCloud aria-hidden="true" size={20} /></span>
             <strong>파일 선택 또는 끌어 놓기</strong>
-            <small>WAV · 최대 16 MiB</small>
+            <small>WAV, MP3, M4A, AAC, MP4, WebM, FLAC · 최대 16 MiB</small>
           </button>
         )}
       </div>
