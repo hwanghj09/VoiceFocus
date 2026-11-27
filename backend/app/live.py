@@ -62,9 +62,9 @@ async def serve_live(socket: WebSocket, model_dir: Path, device: str, available:
             return
         wav = first.get("bytes")
         if wav is None or len(wav) > MAX_FILE_BYTES:
-            raise AudioError("최대 16 MiB의 등록 WAV가 필요합니다.")
+            raise AudioError("최대 16 MiB의 등록 오디오가 필요합니다.")
         enrollment = await asyncio.to_thread(
-            read_audio, BytesIO(wav), min_seconds=1, max_seconds=MAX_ENROLL_SECONDS,
+            read_audio, BytesIO(wav), min_seconds=1, max_seconds=MAX_ENROLL_SECONDS, wav_only=False,
         )
         stream = await asyncio.to_thread(load_stream, model_dir, device, enrollment)
         await socket.send_json({"ready": True, "sample_rate": SAMPLE_RATE, "chunk": CHUNK})
