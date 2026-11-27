@@ -11,7 +11,7 @@ try {
         & $Exe @Arguments
         if ($LASTEXITCODE -ne 0) { throw "$Exe failed (exit $LASTEXITCODE)." }
     }
-    Run $Python @('-c','import torch, torchaudio; assert torch.__version__.split("+")[0] == torchaudio.__version__.split("+")[0] == "2.7.1"')
+    Run $Python @('-c','import torch, torchaudio; assert torch.__version__.split(''+'')[0] == torchaudio.__version__.split(''+'')[0] == ''2.7.1''')
     Run $Python @('-m','pip','install','-r','backend/requirements.txt','-r','backend/requirements-model.txt')
     Run $Python @('-m','pip','install','ai-edge-litert==2.1.6')
     New-Item -ItemType Directory -Force '.voicefocus/vendor','.voicefocus/models' | Out-Null
