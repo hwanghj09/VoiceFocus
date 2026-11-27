@@ -220,30 +220,30 @@ async def read_uploads(
         raise HTTPException(413, "업로드 용량을 초과했습니다.")
     media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
     if media_type != "multipart/form-data":
-        raise HTTPException(415, "WAV 파일을 multipart/form-data로 올려 주세요.")
+        raise HTTPException(415, "오디오 파일을 multipart/form-data로 올려 주세요.")
     parser = MultiPartParser(request.headers, limited_body(), max_files=len(limits), max_fields=0)
     try:
         form = await parser.parse()
     except MultiPartException as exc:
         status = 413 if exc.message == "Request is too large." else 400
-        raise HTTPException(status, "WAV 파일과 업로드 용량을 확인해 주세요.") from exc
+        raise HTTPException(status, "오디오 파일과 업로드 용량을 확인해 주세요.") from exc
 
     try:
         names = [name for name, _ in form.multi_items()]
         if set(names) - limits.keys() or len(set(names)) != len(names):
-            raise HTTPException(422, "올린 WAV 파일의 입력 항목을 확인해 주세요.")
+            raise HTTPException(422, "올린 오디오 파일의 입력 항목을 확인해 주세요.")
         signals = {}
         for name, (minimum, maximum) in limits.items():
             upload = form.get(name)
             if name == optional and upload is None:
                 continue
             if not isinstance(upload, UploadFile):
-                raise HTTPException(422, f"{name} WAV 파일이 필요합니다.")
+                raise HTTPException(422, f"{name} 오디오 파일이 필요합니다.")
             if upload.size is not None and upload.size > MAX_FILE_BYTES:
                 raise HTTPException(413, "파일당 최대 16 MiB까지 올릴 수 있습니다.")
             try:
                 signal = await asyncio.to_thread(
-                    read_audio, upload.file, min_seconds=minimum, max_seconds=maximum,
+                    read_audio, upload.file, min_seconds=minimum, max_seconds=maximum, wav_only=False,
                 )
             except AudioError as exc:
                 raise HTTPException(422, f"{name}: {exc}") from exc
