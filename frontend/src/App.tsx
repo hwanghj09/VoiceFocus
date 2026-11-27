@@ -8,7 +8,6 @@ import type { Job, ModelStatus } from './api'
 import { AudioPreview } from './components/AudioPreview'
 import { Comparison } from './components/Comparison'
 import { EnrollmentRecorder } from './components/EnrollmentRecorder'
-import { LivePreview } from './components/LivePreview'
 import { CallRoom } from './components/CallRoom'
 import { Upload } from './components/Upload'
 
@@ -40,11 +39,10 @@ export function App() {
   const [enrollRecording, setEnrollRecording] = useState(false)
   const [mixtureRecording, setMixtureRecording] = useState(false)
   const recordingBusy = enrollRecording || mixtureRecording
-  const [liveBusy, setLiveBusy] = useState(false)
   const extraction = useRef<AbortController | null>(null)
   const ready = info?.automatic_available
   const busy = runState !== 'idle'
-  const inputsLocked = busy || recordingBusy || liveBusy
+  const inputsLocked = busy || recordingBusy
 
   useEffect(() => {
     const controller = new AbortController()
@@ -216,10 +214,10 @@ export function App() {
             </div>
             <div className="upload-grid">
               <Upload label="혼합 음성" hint="여러 사람의 목소리 · 최대 30초" icon={Layers} file={mixture} disabled={inputsLocked} onChange={(next) => changeFile(next, 'mixture')}>
-                <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy || enrollRecording} onBusy={setMixtureRecording} onRecorded={(file) => changeFile(file, 'mixture')} label="혼합 음성 녹음" maxSeconds={30} filename="voicefocus-mixture.wav" />
+                <EnrollmentRecorder active={page === 'extract'} disabled={busy || enrollRecording} onBusy={setMixtureRecording} onRecorded={(file) => changeFile(file, 'mixture')} label="혼합 음성 녹음" maxSeconds={30} filename="voicefocus-mixture.wav" />
               </Upload>
               <Upload label="등록 음성" hint="목표 화자만 말한 음성 · 1–20초" icon={ScanFace} file={enroll} disabled={inputsLocked} onChange={(next) => changeFile(next, 'enroll')}>
-                <EnrollmentRecorder active={page === 'extract'} disabled={busy || liveBusy || mixtureRecording} onBusy={setEnrollRecording} onRecorded={(file) => changeFile(file, 'enroll')} />
+                <EnrollmentRecorder active={page === 'extract'} disabled={busy || mixtureRecording} onBusy={setEnrollRecording} onRecorded={(file) => changeFile(file, 'enroll')} />
               </Upload>
             </div>
             <div className="setup-actions">
@@ -241,7 +239,6 @@ export function App() {
             )}
           </section>
 
-          {page === 'extract' && <LivePreview enrollment={enroll} available={Boolean(info?.live_available)} disabled={busy || recordingBusy} onBusy={setLiveBusy} />}
 
           <section className="output-section" aria-labelledby="result-title">
             <div className="section-heading results-heading">

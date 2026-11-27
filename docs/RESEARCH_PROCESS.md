@@ -67,7 +67,7 @@ $$E_y=E_a+E_b+2\sum_n a[n]b[n]$$
 
 ## 08. 서비스 구현
 
-React/TypeScript UI, FastAPI, REAL-TSE, WeSpeaker, FFmpeg 및 WebRTC로 파일 추출·음성 혼합·실시간 마이크·자체 웹 통화를 연결했다. 혼합 음성 및 등록 음성은 파일 또는 마이크에서 입력한다. 비교 재생, 파형·스펙트로그램, WAV 다운로드를 제공한다.
+React/TypeScript UI, FastAPI, REAL-TSE, WeSpeaker, FFmpeg 및 WebRTC로 파일 추출·음성 혼합·자체 웹 통화를 연결했다. 독립 실시간 마이크 화면은 최종 서비스에서 제거했으며, 기존 실시간 연구 기록과 통화용 처리 경로는 유지했다. 혼합 음성 및 등록 음성은 파일 또는 마이크에서 입력한다. 비교 재생, 파형·스펙트로그램, WAV 다운로드를 제공한다.
 
 [시스템 구조](ARCHITECTURE.md) · [최종 연구 결과](EVALUATION.md) · [실행 방법](../README.md)
 
