@@ -51,12 +51,11 @@ def test_mix_resamples_aligns_and_pads():
 
 @pytest.mark.parametrize("files", [
     {"a": ("fake.wav", b"not a WAV", "audio/wav"), "b": upload(tone())},
-    {"a": upload(tone(), format="FLAC"), "b": upload(tone())},
     {"a": upload(np.zeros(16000)), "b": upload(tone())},
     {"a": upload(tone(seconds=31)), "b": upload(tone())},
     {"a": upload(tone())},
 ])
-def test_mix_rejects_invalid_wav_or_missing_file(files):
+def test_mix_rejects_invalid_audio_or_missing_file(files):
     with TestClient(main.create_app()) as client:
         assert client.post("/api/v1/mix", files=files).status_code == 422
 
